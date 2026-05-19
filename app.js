@@ -1029,7 +1029,7 @@ async function calculateExcelInBrowser(fields) {
     });
 
     const totalExtraDiscountAmount = sumNumericObjectValues(extraValues);
-    const adjustedFinalPrice = Math.round(finalPrice - totalExtraDiscountAmount);
+    const adjustedOriginalPrice = Math.round(originalPrice - totalExtraDiscountAmount);
 
     const rewardValues = {};
     let totalRewardAmount = 0;
@@ -1040,21 +1040,21 @@ async function calculateExcelInBrowser(fields) {
       totalRewardAmount += amount;
     });
 
-    const totalDiscount = Math.round(originalPrice - adjustedFinalPrice);
+    const totalDiscount = Math.round(adjustedOriginalPrice - finalPrice);
     rows.push({
       row_id: rowNumber,
       product_name: String(productValue),
       category_name: categoryCol !== null ? String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, categoryCol).value)) : "",
-      original_price: Math.round(originalPrice),
-      base_discount_amount: Math.round(finalPrice),
+      base_original_price: Math.round(originalPrice),
       extra_discount_amount: totalExtraDiscountAmount,
-      discount_amount: adjustedFinalPrice,
+      original_price: adjustedOriginalPrice,
+      discount_amount: Math.round(finalPrice),
       total_discount_amount: totalDiscount,
-      discount_rate: Math.round((totalDiscount / originalPrice) * 1000) / 10,
+      discount_rate: adjustedOriginalPrice > 0 ? Math.round((totalDiscount / adjustedOriginalPrice) * 1000) / 10 : 0,
       extra_values: extraValues,
       reward_values: rewardValues,
       total_reward_amount: totalRewardAmount,
-      effective_price: Math.round(adjustedFinalPrice - totalRewardAmount),
+      effective_price: Math.round(finalPrice - totalRewardAmount),
     });
   }
   if (rows.length === 0) throw new Error("선택한 범위에서 계산 가능한 숫자 행을 찾지 못했습니다.");
@@ -1931,10 +1931,11 @@ function applyEditedValue(row, column, value) {
     return;
   }
   const numericValue = parseEditedNumber(value);
-  if (column === "original_price") row.original_price = numericValue;
-  else if (column === "discount_amount") {
+  if (column === "original_price") {
     const currentExtraDiscount = sumNumericObjectValues(row.extra_values ?? {});
-    row.base_discount_amount = numericValue + currentExtraDiscount;
+    row.base_original_price = numericValue + currentExtraDiscount;
+    row.original_price = numericValue;
+  } else if (column === "discount_amount") {
     row.discount_amount = numericValue;
   } else if (column.startsWith("extra_")) {
     row.extra_values[column.replace("extra_", "")] = numericValue;
@@ -1951,11 +1952,11 @@ function parseEditedNumber(value) {
 
 function recalculateDerivedValues(row) {
   row.extra_discount_amount = sumNumericObjectValues(row.extra_values ?? {});
-  const baseFinalPrice = Number.isFinite(Number(row.base_discount_amount))
-    ? Number(row.base_discount_amount)
-    : Number(row.discount_amount) + row.extra_discount_amount;
-  row.base_discount_amount = baseFinalPrice;
-  row.discount_amount = Math.round(baseFinalPrice - row.extra_discount_amount);
+  const baseOriginalPrice = Number.isFinite(Number(row.base_original_price))
+    ? Number(row.base_original_price)
+    : Number(row.original_price) + row.extra_discount_amount;
+  row.base_original_price = baseOriginalPrice;
+  row.original_price = Math.round(baseOriginalPrice - row.extra_discount_amount);
   row.total_discount_amount = Math.round((row.original_price ?? 0) - (row.discount_amount ?? 0));
   row.discount_rate = row.original_price > 0 ? Math.round((row.total_discount_amount / row.original_price) * 1000) / 10 : 0;
   row.total_reward_amount = sumNumericObjectValues(row.reward_values ?? {});
