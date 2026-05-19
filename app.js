@@ -1,0 +1,1471 @@
+const fileInput = document.querySelector("#excelFile");
+const fileDrop = document.querySelector(".file-drop");
+const statusCard = document.querySelector("#statusCard");
+const mappingSection = document.querySelector("#mappingSection");
+const resultSection = document.querySelector("#resultSection");
+const sheetSelect = document.querySelector("#sheetSelect");
+const previewTable = document.querySelector("#previewTable");
+const productColumn = document.querySelector("#productColumn");
+const productColorChoices = document.querySelector("#productColorChoices");
+const productColorPicker = document.querySelector("#productColorPicker");
+const productColorTrigger = document.querySelector("#productColorTrigger");
+const originalColumn = document.querySelector("#originalColumn");
+const originalColorChoices = document.querySelector("#originalColorChoices");
+const originalColorPicker = document.querySelector("#originalColorPicker");
+const originalColorTrigger = document.querySelector("#originalColorTrigger");
+const finalPriceColumn = document.querySelector("#finalPriceColumn");
+const categoryColumn = document.querySelector("#categoryColumn");
+const finalColorChoices = document.querySelector("#finalColorChoices");
+const finalColorPicker = document.querySelector("#finalColorPicker");
+const finalColorTrigger = document.querySelector("#finalColorTrigger");
+const startRow = document.querySelector("#startRow");
+const endRow = document.querySelector("#endRow");
+const currentPickLabel = document.querySelector("#currentPickLabel");
+const calculateButton = document.querySelector("#calculateButton");
+const itemCount = document.querySelector("#itemCount");
+const resultBody = document.querySelector("#resultBody");
+const editResultsButton = document.querySelector("#editResultsButton");
+const expandResultsButton = document.querySelector("#expandResultsButton");
+const productSearch = document.querySelector("#productSearch");
+const productFilterButton = document.querySelector("#productFilterButton");
+const productFilterPanel = document.querySelector("#productFilterPanel");
+const productFilterList = document.querySelector("#productFilterList");
+const addProductFilterButton = document.querySelector("#addProductFilterButton");
+const removeParenthesesText = document.querySelector("#removeParenthesesText");
+const removeBracketsText = document.querySelector("#removeBracketsText");
+const removeTrailingModelCode = document.querySelector("#removeTrailingModelCode");
+const removeAfterDelimiter = document.querySelector("#removeAfterDelimiter");
+const removeLeadingText = document.querySelector("#removeLeadingText");
+const leadingTextOptions = document.querySelector("#leadingTextOptions");
+const leadingTextValue = document.querySelector("#leadingTextValue");
+const delimiterOptions = document.querySelector("#delimiterOptions");
+const delimiterValue = document.querySelector("#delimiterValue");
+const visibleColumnsButton = document.querySelector("#visibleColumnsButton");
+const visibleColumnsPanel = document.querySelector("#visibleColumnsPanel");
+const showWonSuffix = document.querySelector("#showWonSuffix");
+const showDiscountMinus = document.querySelector("#showDiscountMinus");
+const highlightFinalPrices = document.querySelector("#highlightFinalPrices");
+const titleCaseProductName = document.querySelector("#titleCaseProductName");
+const autoLoadColorFilters = document.querySelector("#autoLoadColorFilters");
+const colorLoadOptionText = document.querySelector("#colorLoadOptionText");
+const sortField = document.querySelector("#sortField");
+const sortDirection = document.querySelector("#sortDirection");
+const emptyResultMessage = document.querySelector("#emptyResultMessage");
+const productNameHeader = document.querySelector("#productNameHeader");
+const productNameResizer = document.querySelector("#productNameResizer");
+const confirmDialog = document.querySelector("#confirmDialog");
+const confirmMessage = document.querySelector("#confirmMessage");
+const confirmYesButton = document.querySelector("#confirmYesButton");
+const confirmNoButton = document.querySelector("#confirmNoButton");
+const messageDialog = document.querySelector("#messageDialog");
+const messageText = document.querySelector("#messageText");
+const messageCloseButton = document.querySelector("#messageCloseButton");
+const restoreDialog = document.querySelector("#restoreDialog");
+const restoreYesButton = document.querySelector("#restoreYesButton");
+const restoreNoButton = document.querySelector("#restoreNoButton");
+const addExtraFieldButton = document.querySelector("#addExtraFieldButton");
+const extraFieldsList = document.querySelector("#extraFieldsList");
+const extraColumnsAnchor = document.querySelector("#extraColumnsAnchor");
+const addRewardFieldButton = document.querySelector("#addRewardFieldButton");
+const rewardFieldsList = document.querySelector("#rewardFieldsList");
+const rewardColumnsAnchor = document.querySelector("#rewardColumnsAnchor");
+
+const currencyFormatter = new Intl.NumberFormat("ko-KR");
+let uploadedFile = null;
+let workbookPreview = null;
+let activePick = "product";
+let pendingPayload = null;
+let currentRows = [];
+let isEditMode = false;
+let selectedRowId = null;
+const hiddenColumns = new Set();
+let productNameFilters = [];
+let extraFields = [];
+let rewardFields = [];
+let activeExtraFieldTarget = null;
+let pendingRestoreConfig = null;
+const SETTINGS_STORAGE_KEY = "discount-calculator-settings-v1";
+const extraFieldNameSuggestions = ["선택쿠폰", "중복쿠폰", "카드할인"];
+const rewardFieldNameSuggestions = ["\uC2A4\uB9C8\uC77C\uCE74\uB4DC", "\uBA38\uB2C8\uCDA9\uC804", "\uAF2D\uBA64\uBC841", "\uAF2D\uBA64\uBC842"];
+const columnFilters = {
+  product: { input: productColumn, picker: productColorPicker, trigger: productColorTrigger, choices: productColorChoices, selected: "" },
+  original: { input: originalColumn, picker: originalColorPicker, trigger: originalColorTrigger, choices: originalColorChoices, selected: "" },
+  final: { input: finalPriceColumn, picker: finalColorPicker, trigger: finalColorTrigger, choices: finalColorChoices, selected: "" },
+};
+
+if (window.location.protocol === "file:") {
+  setStatus("이 페이지는 파일로 직접 열려 있습니다. start.bat을 실행해 접속해주세요.", "error");
+}
+let productColumnWidth = null;
+
+initializeCustomSelects();
+cleanupStoredSettings();
+
+fileInput.addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  uploadedFile = file;
+  fileDrop.classList.add("uploaded");
+  hideResults();
+  extraFields = [];
+  rewardFields = [];
+  renderExtraFieldInputs();
+  renderRewardFieldInputs();
+  setStatus("엑셀 내용을 읽고 있습니다...", "success");
+  try {
+    workbookPreview = await postFile("/api/inspect");
+    populateSheetSelect(workbookPreview.sheets);
+    renderSheet(workbookPreview.sheets[0].name);
+    mappingSection.classList.remove("hidden");
+    const savedConfig = getStoredSettingsForFile(file.name);
+    if (savedConfig) {
+      pendingRestoreConfig = savedConfig;
+      showRestoreDialog();
+    }
+    setStatus("파일을 읽었습니다. 계산에 사용할 위치를 선택하세요.", "success");
+  } catch (error) {
+    setStatus(error.message, "error");
+  }
+});
+
+sheetSelect.addEventListener("change", () => renderSheet(sheetSelect.value));
+productColumn.addEventListener("focus", () => setActivePick("product"));
+originalColumn.addEventListener("focus", () => setActivePick("original"));
+finalPriceColumn.addEventListener("focus", () => setActivePick("final"));
+categoryColumn.addEventListener("focus", () => setActivePick("category"));
+addExtraFieldButton.addEventListener("click", addExtraField);
+addRewardFieldButton.addEventListener("click", addRewardField);
+
+calculateButton.addEventListener("click", async () => {
+  syncTypedColumns();
+  if (!productColumn.dataset.index || !originalColumn.dataset.index || !finalPriceColumn.dataset.index) {
+    setStatus("제품명 열, 기존금액 열, 최종가 열을 모두 선택해주세요.", "error");
+    return;
+  }
+  const extraFieldValidationMessage = validateExtraFields();
+  if (extraFieldValidationMessage) {
+    showMessageDialog(extraFieldValidationMessage);
+    return;
+  }
+  try {
+    setCalculating(true);
+    const payload = await postFile("/api/calculate", {
+      sheet_name: sheetSelect.value,
+      product_col: productColumn.dataset.index,
+      product_color: columnFilters.product.selected,
+      original_col: originalColumn.dataset.index,
+      original_color: columnFilters.original.selected,
+      final_price_col: finalPriceColumn.dataset.index,
+      final_price_color: columnFilters.final.selected,
+      category_col: categoryColumn.dataset.index ?? "",
+      extra_fields: JSON.stringify(serializeExtraFields()),
+      reward_fields: JSON.stringify(serializeRewardFields()),
+      start_row: startRow.value,
+      end_row: endRow.value,
+    });
+    const negativeRows = payload.rows.filter((row) => row.total_discount_amount < 0);
+    if (negativeRows.length > 0) {
+      pendingPayload = payload;
+      showConfirmDialog(
+        `최종가가 기존금액보다 큰 상품이 ${negativeRows.length}개 있습니다. 계속하시겠습니까?`,
+      );
+      return;
+    }
+    finishRender(payload);
+  } catch (error) {
+    showMessageDialog(error.message);
+  } finally {
+    setCalculating(false);
+  }
+});
+
+confirmYesButton.addEventListener("click", () => {
+  if (!pendingPayload) return;
+  const payload = pendingPayload;
+  pendingPayload = null;
+  hideConfirmDialog();
+  finishRender(payload);
+});
+
+confirmNoButton.addEventListener("click", () => {
+  pendingPayload = null;
+  hideConfirmDialog();
+  hideResults();
+  setStatus("계산을 취소했습니다. 선택한 열을 다시 확인해주세요.", "error");
+});
+
+messageCloseButton.addEventListener("click", hideMessageDialog);
+restoreYesButton.addEventListener("click", () => {
+  if (pendingRestoreConfig) restoreSettings(pendingRestoreConfig);
+  pendingRestoreConfig = null;
+  hideRestoreDialog();
+});
+restoreNoButton.addEventListener("click", () => {
+  pendingRestoreConfig = null;
+  hideRestoreDialog();
+});
+
+productSearch.addEventListener("input", renderFilteredResults);
+sortField.addEventListener("change", renderFilteredResults);
+sortDirection.addEventListener("change", renderFilteredResults);
+productFilterButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  productFilterPanel.classList.toggle("hidden");
+});
+productFilterPanel.addEventListener("click", (event) => {
+  event.stopPropagation();
+});
+addProductFilterButton.addEventListener("click", () => {
+  productNameFilters.push("");
+  renderProductFilterInputs();
+});
+removeParenthesesText.addEventListener("change", renderFilteredResults);
+removeBracketsText.addEventListener("change", renderFilteredResults);
+removeTrailingModelCode.addEventListener("change", renderFilteredResults);
+removeAfterDelimiter.addEventListener("change", () => {
+  delimiterOptions.classList.toggle("hidden", !removeAfterDelimiter.checked);
+  renderFilteredResults();
+});
+removeLeadingText.addEventListener("change", () => {
+  leadingTextOptions.classList.toggle("hidden", !removeLeadingText.checked);
+  renderFilteredResults();
+});
+leadingTextValue.addEventListener("input", renderFilteredResults);
+delimiterValue.addEventListener("input", renderFilteredResults);
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".search-with-filter")) {
+    productFilterPanel.classList.add("hidden");
+  }
+  if (!event.target.closest(".visible-columns-wrap")) {
+    visibleColumnsPanel.classList.add("hidden");
+  }
+});
+visibleColumnsButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  visibleColumnsPanel.classList.toggle("hidden");
+});
+visibleColumnsPanel.querySelectorAll("[data-visible-column]").forEach((checkbox) => {
+  checkbox.addEventListener("change", () => {
+    const column = checkbox.dataset.visibleColumn;
+    if (checkbox.checked) hiddenColumns.delete(column);
+    else hiddenColumns.add(column);
+    applyVisibleColumns();
+  });
+});
+showWonSuffix.addEventListener("change", renderFilteredResults);
+showDiscountMinus.addEventListener("change", renderFilteredResults);
+highlightFinalPrices.addEventListener("change", applyPriceHighlighting);
+titleCaseProductName.addEventListener("change", renderFilteredResults);
+autoLoadColorFilters.addEventListener("change", () => {
+  if (autoLoadColorFilters.checked) loadAllColumnColors();
+  else Object.keys(columnFilters).forEach(resetColumnColors);
+});
+productNameResizer.addEventListener("pointerdown", startProductColumnResize);
+editResultsButton.addEventListener("click", () => {
+  isEditMode = !isEditMode;
+  editResultsButton.classList.toggle("active", isEditMode);
+  editResultsButton.textContent = isEditMode ? "저장하기" : "편집";
+  resultSection.classList.toggle("edit-mode", isEditMode);
+});
+expandResultsButton.addEventListener("click", () => {
+  resultSection.classList.toggle("expanded-results");
+  const expanded = resultSection.classList.contains("expanded-results");
+  expandResultsButton.textContent = expanded ? "축소" : "확장";
+});
+Object.values(columnFilters).forEach((filter) => {
+  filter.trigger.addEventListener("click", () => {
+    closeAllColorMenus(filter.choices);
+    filter.choices.classList.toggle("hidden");
+  });
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".inline-color-picker")) closeAllColorMenus();
+});
+
+function populateSheetSelect(sheets) {
+  sheetSelect.innerHTML = "";
+  sheets.forEach((sheet) => {
+    const option = document.createElement("option");
+    option.value = sheet.name;
+    option.textContent = sheet.name;
+    sheetSelect.appendChild(option);
+  });
+  syncCustomSelect(sheetSelect);
+}
+
+function renderSheet(sheetName) {
+  const sheet = workbookPreview.sheets.find((item) => item.name === sheetName);
+  previewTable.innerHTML = "";
+  [productColumn, originalColumn, finalPriceColumn, categoryColumn].forEach((input) => {
+    input.value = "";
+    delete input.dataset.index;
+  });
+  Object.keys(columnFilters).forEach(resetColumnColors);
+  startRow.value = sheet.suggested_start_row || 1;
+  endRow.value = sheet.suggested_end_row || sheet.total_rows;
+  setActivePick("product");
+  updateCalculateButtonState();
+
+  const header = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  headerRow.appendChild(document.createElement("th"));
+  sheet.preview[0]?.forEach((_, visibleColIndex) => {
+    const colIndex = sheet.preview_cols?.[visibleColIndex] ?? visibleColIndex;
+    const th = document.createElement("th");
+    th.textContent = columnLabel(colIndex);
+    headerRow.appendChild(th);
+  });
+  header.appendChild(headerRow);
+  previewTable.appendChild(header);
+
+  const body = document.createElement("tbody");
+  sheet.preview.forEach((row, visibleRowIndex) => {
+    const rowNumber = sheet.preview_rows?.[visibleRowIndex] ?? visibleRowIndex + 1;
+    const tr = document.createElement("tr");
+    const rowHeader = document.createElement("th");
+    rowHeader.textContent = String(rowNumber);
+    tr.appendChild(rowHeader);
+    row.forEach((cell, visibleColIndex) => {
+      const colIndex = sheet.preview_cols?.[visibleColIndex] ?? visibleColIndex;
+      const td = document.createElement("td");
+      td.textContent = cell ?? "";
+      td.dataset.row = String(rowNumber);
+      td.dataset.col = String(colIndex);
+      td.addEventListener("click", () => selectCell(td));
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+  previewTable.appendChild(body);
+}
+
+function selectCell(cell) {
+  const colIndex = Number(cell.dataset.col);
+  const rowNumber = Number(cell.dataset.row);
+  const target =
+    activePick === "extra"
+      ? activeExtraFieldTarget
+      : activePick === "product"
+      ? productColumn
+      : activePick === "original"
+        ? originalColumn
+        : activePick === "final"
+          ? finalPriceColumn
+          : categoryColumn;
+
+  target.value = `${columnLabel(colIndex)}열`;
+  target.dataset.index = String(colIndex);
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+  if (activePick === "product") {
+    startRow.value = rowNumber;
+  }
+  if (activePick !== "extra" && autoLoadColorFilters.checked) loadColumnColors(activePick);
+
+  previewTable.querySelectorAll(`td[data-col="${colIndex}"]`).forEach((node) => {
+    node.classList.add(
+      activePick === "product"
+        ? "selected-product"
+        : activePick === "original"
+          ? "selected-original"
+          : "selected-discount",
+    );
+  });
+
+  if (activePick === "product") setActivePick("original");
+  else if (activePick === "original") setActivePick("final");
+  updateCalculateButtonState();
+}
+
+[productColumn, originalColumn, finalPriceColumn, categoryColumn].forEach((input) => {
+  input.addEventListener("input", () => {
+    const parsed = parseColumnInput(input.value);
+    if (parsed === null) {
+      delete input.dataset.index;
+      resetColumnColors(columnKeyForInput(input));
+      return;
+    }
+    input.dataset.index = String(parsed);
+    if (autoLoadColorFilters.checked) loadColumnColors(columnKeyForInput(input));
+    else resetColumnColors(columnKeyForInput(input));
+    updateCalculateButtonState();
+  });
+});
+
+startRow.addEventListener("change", loadAllColumnColors);
+endRow.addEventListener("change", loadAllColumnColors);
+sheetSelect.addEventListener("change", () => {
+  Object.keys(columnFilters).forEach(resetColumnColors);
+});
+
+function setActivePick(type) {
+  activePick = type;
+  currentPickLabel.textContent =
+    type === "product"
+      ? "제품명"
+      : type === "original"
+        ? "기존금액"
+        : type === "final"
+          ? "최종가"
+          : type === "category"
+            ? "카테고리"
+            : "추가 항목";
+}
+
+function columnKeyForInput(input) {
+  return Object.keys(columnFilters).find((key) => columnFilters[key].input === input);
+}
+
+async function loadAllColumnColors() {
+  if (!autoLoadColorFilters.checked) {
+    Object.keys(columnFilters).forEach(resetColumnColors);
+    return;
+  }
+  setColorLoading(true);
+  try {
+    await Promise.all(Object.keys(columnFilters).map(loadColumnColors));
+  } finally {
+    setColorLoading(false);
+  }
+}
+
+function setColorLoading(isLoading) {
+  if (!colorLoadOptionText) return;
+  colorLoadOptionText.textContent = isLoading ? "불러오는 중..." : "열 선택 시 색상값 불러오기";
+}
+
+async function loadColumnColors(key) {
+  syncTypedColumns();
+  const filter = columnFilters[key];
+  if (!filter?.input.dataset.index || !uploadedFile) return;
+
+  try {
+    const previousSelection = filter.selected;
+    const payload = await postFile("/api/column-colors", {
+      sheet_name: sheetSelect.value,
+      column_index: filter.input.dataset.index,
+      start_row: startRow.value,
+      end_row: endRow.value,
+    });
+    const usableColors = payload.colors.filter((color) => color.value !== "FFFFFF");
+    const availableColors = usableColors.map((color) => color.value);
+    filter.selected = availableColors.includes(previousSelection) ? previousSelection : "";
+    filter.choices.innerHTML = `<button class="color-choice selected" type="button" data-color="">전체</button>`;
+    usableColors.forEach((color) => {
+      const button = document.createElement("button");
+      button.className = "color-choice";
+      button.type = "button";
+      button.dataset.color = color.value;
+      button.innerHTML = `
+        <span class="color-swatch" style="background:#${color.value}"></span>
+        <span>${color.count}개</span>
+        <span class="color-tooltip">#${color.value}</span>
+      `;
+      filter.choices.appendChild(button);
+    });
+    filter.picker.classList.toggle("hidden", usableColors.length === 0);
+    bindColorChoiceEvents(key);
+    updateColorTrigger(key);
+  } catch {
+    resetColumnColors(key);
+  }
+}
+
+function resetColumnColors(key) {
+  const filter = columnFilters[key];
+  filter.selected = "";
+  filter.picker.classList.add("hidden");
+  filter.choices.classList.add("hidden");
+  filter.choices.innerHTML = `<button class="color-choice selected" type="button" data-color="">전체</button>`;
+  updateColorTrigger(key);
+}
+
+function closeAllColorMenus(exceptChoices = null) {
+  Object.values(columnFilters).forEach((filter) => {
+    if (filter.choices !== exceptChoices) filter.choices.classList.add("hidden");
+  });
+}
+
+function bindColorChoiceEvents(key) {
+  const filter = columnFilters[key];
+  filter.choices.querySelectorAll(".color-choice").forEach((button) => {
+    button.addEventListener("click", () => {
+      filter.selected = button.dataset.color;
+      filter.choices.querySelectorAll(".color-choice").forEach((node) => {
+        node.classList.toggle("selected", node === button);
+      });
+      updateColorTrigger(key);
+      filter.choices.classList.add("hidden");
+    });
+  });
+}
+
+function updateColorTrigger(key) {
+  const filter = columnFilters[key];
+  if (!filter.selected) {
+    filter.trigger.textContent = "+";
+    filter.trigger.classList.remove("has-selection");
+    return;
+  }
+  const selectedButton = filter.choices.querySelector(`[data-color="${filter.selected}"]`);
+  filter.trigger.innerHTML = selectedButton
+    ? `<span class="color-swatch" style="background:#${filter.selected}"></span>`
+    : "+";
+  filter.trigger.title = filter.selected ? `#${filter.selected}` : "";
+  filter.trigger.classList.add("has-selection");
+}
+
+async function postFile(path, extraFields = {}) {
+  if (window.location.protocol === "file:") {
+    throw new Error("파일로 직접 연 상태에서는 엑셀 분석을 할 수 없습니다. start.bat을 실행해 접속해주세요.");
+  }
+  const formData = new FormData();
+  formData.append("file", uploadedFile);
+  Object.entries(extraFields).forEach(([key, value]) => formData.append(key, value));
+  const response = await fetch(path, { method: "POST", body: formData });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "처리 중 문제가 생겼습니다.");
+  return payload;
+}
+
+function renderResults(payload) {
+  itemCount.textContent = `${payload.rows.length}개`;
+  currentRows = payload.rows;
+  extraFields = payload.extra_fields ?? extraFields;
+  rewardFields = payload.reward_fields ?? rewardFields;
+  productSearch.value = "";
+  productNameFilters = [];
+  renderProductFilterInputs();
+  sortField.value = "none";
+  sortDirection.value = "desc";
+  syncCustomSelect(sortField);
+  syncCustomSelect(sortDirection);
+  renderFilteredResults();
+  resultSection.classList.remove("hidden");
+}
+
+function renderFilteredResults() {
+  resultBody.innerHTML = "";
+
+  const keyword = productSearch.value.trim().toLowerCase();
+  const rows = currentRows
+    .filter((row) => row.product_name.toLowerCase().includes(keyword))
+    .sort((a, b) => {
+      if (sortField.value === "none") return 0;
+      const diff = a[sortField.value] - b[sortField.value];
+      return sortDirection.value === "asc" ? diff : -diff;
+    });
+
+  const groupedRows = categoryColumn.dataset.index ? groupRowsByCategory(rows) : [["", rows]];
+
+  groupedRows.forEach(([category, categoryRows]) => {
+    if (categoryColumn.dataset.index) {
+      const groupRow = document.createElement("tr");
+      groupRow.className = "category-group-row";
+      groupRow.innerHTML = `<td colspan="${7 + extraFields.length + rewardFields.length}">${escapeHtml(category || "미분류")}</td>`;
+      resultBody.appendChild(groupRow);
+    }
+    categoryRows.forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.dataset.rowId = row.row_id;
+    tr.classList.toggle("selected-result-row", String(selectedRowId) === String(row.row_id));
+    const extraCells = extraFields
+      .map((field) => `<td class="extra-column" data-column="extra_${field.id}">${buildCopyCell(formatExtraValue(row.extra_values?.[field.id]))}</td>`)
+      .join("");
+    const rewardCells = rewardFields
+      .map((field, index) => `<td class="reward-column${index === 0 ? " reward-group-start" : ""}" data-column="reward_${field.id}">${buildCopyCell(formatCurrency(row.reward_values?.[field.id] ?? 0))}</td>`)
+      .join("");
+    tr.innerHTML = `
+      <td>${buildCopyCell(displayProductName(row.product_name ?? ""))}</td>
+      <td data-column="original_price">${buildCopyCell(formatCurrency(row.original_price))}</td>
+      <td data-column="discount_amount">${buildCopyCell(formatCurrency(row.discount_amount))}</td>
+      ${extraCells}
+      ${rewardCells}
+      <td class="reward-column${rewardFields.length === 0 ? " reward-group-start" : ""}" data-column="total_reward_amount">${buildCopyCell(formatCurrency(row.total_reward_amount ?? 0))}</td>
+      <td class="reward-column reward-group-end" data-column="effective_price">${buildCopyCell(formatCurrency(row.effective_price ?? row.discount_amount))}</td>
+      <td data-column="total_discount_amount">${buildCopyCell(formatTotalDiscount(row.total_discount_amount))}</td>
+      <td data-column="discount_rate">${buildCopyCell(formatRate(row.discount_rate))}</td>
+    `;
+    tr.querySelectorAll("[data-copy-value]").forEach((button) => {
+      button.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (isEditMode) {
+          startInlineEdit(event.currentTarget, row);
+          return;
+        }
+        await copyText(event.currentTarget.dataset.copyValue);
+      });
+    });
+    tr.addEventListener("click", () => {
+      selectedRowId = String(row.row_id);
+      renderFilteredResults();
+    });
+      resultBody.appendChild(tr);
+    });
+  });
+  applyProductColumnWidth();
+  renderExtraResultHeaders();
+  renderRewardResultHeaders();
+  applyRewardColumnVisibility();
+  applyVisibleColumns();
+  applyPriceHighlighting();
+  emptyResultMessage.classList.toggle("hidden", rows.length > 0);
+}
+
+function applyRewardColumnVisibility() {
+  const shouldShowRewards = rewardFields.length > 0;
+  ["total_reward_amount", "effective_price"].forEach((column) => {
+    document.querySelectorAll(`[data-column="${column}"]`).forEach((node) => {
+      node.classList.toggle("hidden-result-column", !shouldShowRewards || hiddenColumns.has(column));
+    });
+  });
+  visibleColumnsPanel.querySelectorAll('[data-visible-column="total_reward_amount"], [data-visible-column="effective_price"]').forEach((checkbox) => {
+    checkbox.closest("label").classList.toggle("hidden", !shouldShowRewards);
+  });
+  document.querySelectorAll('[data-column="total_reward_amount"]').forEach((node) => {
+    node.classList.toggle("reward-group-start", rewardFields.length === 0);
+  });
+}
+
+function finishRender(payload) {
+  renderResults(payload);
+  saveCurrentSettings();
+  setStatus(`계산 완료: ${payload.rows.length}개 상품을 찾았습니다.`, "success");
+  resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function buildCopyCell(value) {
+  const displayValue = escapeHtml(value);
+  const copyValue = escapeAttribute(value);
+  return `<button class="copy-value" type="button" data-copy-value="${copyValue}">${displayValue}</button>`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value);
+}
+
+function columnLabel(index) {
+  let n = index + 1;
+  let label = "";
+  while (n > 0) {
+    const remainder = (n - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    n = Math.floor((n - 1) / 26);
+  }
+  return label;
+}
+
+function groupRowsByCategory(rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = row.category_name || "미분류";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+  return [...groups.entries()];
+}
+
+function syncTypedColumns() {
+  [productColumn, originalColumn, finalPriceColumn, categoryColumn].forEach((input) => {
+    const parsed = parseColumnInput(input.value);
+    if (parsed === null) {
+      delete input.dataset.index;
+    } else {
+      input.dataset.index = String(parsed);
+    }
+  });
+}
+
+function parseColumnInput(value) {
+  const normalized = String(value).trim().toUpperCase().replace(/열$/, "");
+  if (!/^[A-Z]+$/.test(normalized)) return null;
+  let result = 0;
+  for (const char of normalized) {
+    result = result * 26 + (char.charCodeAt(0) - 64);
+  }
+  return result - 1;
+}
+
+function formatCurrency(value) {
+  return `${currencyFormatter.format(value)}${showWonSuffix.checked ? "원" : ""}`;
+}
+
+function formatTotalDiscount(value) {
+  const prefix = showDiscountMinus.checked ? "-" : "";
+  return `${prefix}${formatCurrency(value)}`;
+}
+
+function formatRate(value) {
+  return `${Math.round(value)}%`;
+}
+
+function formatExtraValue(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return typeof value === "number" ? formatCurrency(value) : String(value);
+}
+
+function displayProductName(value) {
+  let baseValue = String(value);
+
+  if (removeParenthesesText.checked) {
+    baseValue = baseValue.replace(/\([^)]*\)/g, "");
+  }
+  if (removeBracketsText.checked) {
+    baseValue = baseValue.replace(/\[[^\]]*\]/g, "");
+  }
+  if (removeLeadingText.checked && leadingTextValue.value.trim()) {
+    const escapedLeadingText = escapeRegExp(leadingTextValue.value.trim());
+    baseValue = baseValue.replace(new RegExp(`^${escapedLeadingText}\\s*`, "i"), "");
+  }
+  if (removeTrailingModelCode.checked) {
+    baseValue = baseValue.replace(/\s+[A-Z0-9]+(?:-[A-Z0-9]+)+$/i, "");
+  }
+  if (removeAfterDelimiter.checked && delimiterValue.value) {
+    const delimiterIndex = baseValue.indexOf(delimiterValue.value);
+    if (delimiterIndex >= 0) {
+      baseValue = baseValue.slice(0, delimiterIndex);
+    }
+  }
+
+  return productNameFilters
+    .filter((text) => text.trim())
+    .reduce((current, text) => current.replaceAll(text.trim(), ""), baseValue)
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((word) => (titleCaseProductName.checked ? toTitleCaseWord(word) : word))
+    .join(" ");
+}
+
+function toTitleCaseWord(word) {
+  if (!word) return word;
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function applyVisibleColumns() {
+  productNameHeader.classList.toggle("hidden-result-column", hiddenColumns.has("product_name"));
+  resultBody.querySelectorAll("[data-column]").forEach((cell) => {
+    cell.classList.toggle("hidden-result-column", hiddenColumns.has(cell.dataset.column));
+  });
+  document.querySelectorAll("th[data-column]").forEach((header) => {
+    header.classList.toggle("hidden-result-column", hiddenColumns.has(header.dataset.column));
+  });
+  resultBody.querySelectorAll("tr").forEach((row) => {
+    const firstCell = row.children[0];
+    if (firstCell && !row.classList.contains("category-group-row")) {
+      firstCell.classList.toggle("hidden-result-column", hiddenColumns.has("product_name"));
+    }
+  });
+  applyRewardColumnVisibility();
+}
+
+function applyPriceHighlighting() {
+  const shouldHighlight = highlightFinalPrices.checked;
+  document.querySelectorAll('[data-column="discount_amount"]').forEach((node) => {
+    node.classList.toggle("highlight-price-column", shouldHighlight);
+  });
+  document.querySelectorAll('[data-column="effective_price"]').forEach((node) => {
+    node.classList.toggle("highlight-effective-price-column", shouldHighlight && rewardFields.length > 0);
+  });
+}
+
+function addExtraField() {
+  extraFields.push({
+    id: crypto.randomUUID(),
+    name: "",
+    name_choice: "",
+    custom_name: "",
+    mode: "raw",
+    source_col: "",
+    operand_col: "",
+    left_col: "",
+    right_col: "",
+  });
+  renderExtraFieldInputs();
+}
+
+function addRewardField() {
+  rewardFields.push({
+    id: crypto.randomUUID(),
+    name: "",
+    name_choice: "",
+    custom_name: "",
+    source_col: "",
+  });
+  renderRewardFieldInputs();
+}
+
+function renderExtraFieldInputs() {
+  extraFieldsList.innerHTML = "";
+  extraFields.forEach((field) => {
+    field.name_choice ??= extraFieldNameSuggestions.includes(field.name) ? field.name : "custom";
+    field.custom_name ??= field.name_choice === "custom" ? field.name : "";
+    const nameSelectId = `extraNameSelect_${field.id}`;
+    const modeSelectId = `extraModeSelect_${field.id}`;
+    const card = document.createElement("div");
+    card.className = "extra-field-card";
+    card.innerHTML = `
+      <label>
+        <span>항목명</span>
+        <div class="custom-select extra-name-select" data-select-target="${nameSelectId}">
+          <button class="custom-select-trigger" type="button"></button>
+          <div class="custom-select-menu hidden"></div>
+        </div>
+        <select id="${nameSelectId}" data-role="name_choice" class="native-select-hidden" aria-hidden="true" tabindex="-1">
+          <option value="">항목 선택</option>
+          <option value="선택쿠폰">선택쿠폰</option>
+          <option value="중복쿠폰">중복쿠폰</option>
+          <option value="카드할인">카드할인</option>
+          <option value="custom">직접입력</option>
+        </select>
+        <div class="extra-custom-name-wrap hidden-field">
+          <input class="extra-custom-name" data-role="custom_name" value="${escapeAttribute(field.custom_name)}" placeholder="항목명을 입력하세요" />
+          <button class="extra-custom-select-toggle" type="button" aria-label="항목명 선택 열기"></button>
+          <div class="extra-custom-select-menu hidden">
+            <button type="button" data-name-choice="">항목 선택</button>
+            <button type="button" data-name-choice="선택쿠폰">선택쿠폰</button>
+            <button type="button" data-name-choice="중복쿠폰">중복쿠폰</button>
+            <button type="button" data-name-choice="카드할인">카드할인</button>
+          </div>
+        </div>
+      </label>
+      <label>
+        <span>출력 방식</span>
+        <div class="custom-select" data-select-target="${modeSelectId}">
+          <button class="custom-select-trigger" type="button"></button>
+          <div class="custom-select-menu hidden"></div>
+        </div>
+        <select id="${modeSelectId}" data-role="mode" class="native-select-hidden" aria-hidden="true" tabindex="-1">
+          <option value="raw">그대로 출력</option>
+          <option value="original_minus">기존금액 - 선택 열</option>
+          <option value="column_minus">두 열 차이</option>
+        </select>
+      </label>
+      <label data-field="source_col">
+        <span>출력 열</span>
+        <input data-role="source_col" placeholder="예: H" value="${columnValue(field.source_col)}" />
+      </label>
+      <label data-field="operand_col">
+        <span>뺄 열</span>
+        <input data-role="operand_col" placeholder="예: H" value="${columnValue(field.operand_col)}" />
+      </label>
+      <label data-field="left_col">
+        <span>왼쪽 열</span>
+        <input data-role="left_col" placeholder="예: F" value="${columnValue(field.left_col)}" />
+      </label>
+      <label data-field="right_col">
+        <span>오른쪽 열</span>
+        <input data-role="right_col" placeholder="예: H" value="${columnValue(field.right_col)}" />
+      </label>
+      <button class="ghost-button extra-field-remove" type="button">삭제</button>
+    `;
+    const nameSelect = card.querySelector('[data-role="name_choice"]');
+    const customNameInput = card.querySelector('[data-role="custom_name"]');
+    const modeSelect = card.querySelector('[data-role="mode"]');
+    nameSelect.value = field.name_choice;
+    modeSelect.value = field.mode;
+    extraFieldsList.appendChild(card);
+    mountCustomSelect(card.querySelector(`[data-select-target="${nameSelectId}"]`), nameSelect);
+    mountCustomSelect(card.querySelector(`[data-select-target="${modeSelectId}"]`), modeSelect);
+    card.querySelectorAll("input").forEach((input) => {
+      input.addEventListener("focus", () => {
+        if (input.dataset.role === "custom_name") return;
+        activeExtraFieldTarget = input;
+        setActivePick("extra");
+      });
+      input.addEventListener("input", () => updateExtraFieldFromCard(field, card));
+    });
+    nameSelect.addEventListener("change", () => {
+      updateExtraFieldFromCard(field, card);
+      updateExtraNameVisibility(card, field.name_choice);
+    });
+    const customToggle = card.querySelector(".extra-custom-select-toggle");
+    const customMenu = card.querySelector(".extra-custom-select-menu");
+    customToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      customMenu.classList.toggle("hidden");
+    });
+    customMenu.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => {
+        field.name_choice = button.dataset.nameChoice;
+        nameSelect.value = field.name_choice;
+        updateExtraFieldFromCard(field, card);
+        updateExtraNameVisibility(card, field.name_choice);
+        syncCustomSelect(nameSelect);
+        customMenu.classList.add("hidden");
+      });
+    });
+    modeSelect.addEventListener("change", () => {
+      updateExtraFieldFromCard(field, card);
+      updateExtraFieldVisibility(card, field.mode);
+    });
+    card.querySelector(".extra-field-remove").addEventListener("click", () => {
+      extraFields = extraFields.filter((item) => item.id !== field.id);
+      renderExtraFieldInputs();
+    });
+    updateExtraNameVisibility(card, field.name_choice);
+    updateExtraFieldVisibility(card, field.mode);
+  });
+}
+
+function updateExtraFieldFromCard(field, card) {
+  field.name_choice = card.querySelector('[data-role="name_choice"]').value;
+  field.custom_name = card.querySelector('[data-role="custom_name"]').value;
+  field.name = field.name_choice === "custom" ? field.custom_name || "추가 항목" : field.name_choice || "추가 항목";
+  field.mode = card.querySelector('[data-role="mode"]').value;
+  ["source_col", "operand_col", "left_col", "right_col"].forEach((key) => {
+    const input = card.querySelector(`[data-role="${key}"]`);
+    const parsed = parseColumnInput(input.value);
+    field[key] = parsed === null ? "" : parsed;
+  });
+}
+
+function updateExtraNameVisibility(card, nameChoice) {
+  card.querySelector(".extra-name-select").classList.toggle("hidden-field", nameChoice === "custom");
+  card.querySelector(".extra-custom-name-wrap").classList.toggle("hidden-field", nameChoice !== "custom");
+}
+
+function updateExtraFieldVisibility(card, mode) {
+  card.querySelector('[data-field="source_col"]').classList.toggle("hidden-field", mode !== "raw");
+  card.querySelector('[data-field="operand_col"]').classList.toggle("hidden-field", mode !== "original_minus");
+  card.querySelector('[data-field="left_col"]').classList.toggle("hidden-field", mode !== "column_minus");
+  card.querySelector('[data-field="right_col"]').classList.toggle("hidden-field", mode !== "column_minus");
+}
+
+function serializeExtraFields() {
+  return extraFields.map((field) => ({ ...field }));
+}
+
+function validateExtraFields() {
+  for (const field of extraFields) {
+    const name = field.name || "추가 항목";
+    if (field.mode === "raw" && field.source_col === "") {
+      return `"${name}"의 출력 열을 선택해주세요.`;
+    }
+    if (field.mode === "original_minus" && field.operand_col === "") {
+      return `"${name}"의 뺄 열을 선택해주세요.`;
+    }
+    if (field.mode === "column_minus" && (field.left_col === "" || field.right_col === "")) {
+      return `"${name}"의 왼쪽 열과 오른쪽 열을 모두 선택해주세요.`;
+    }
+  }
+  for (const field of rewardFields) {
+    const name = field.name || "적립금액";
+    if (field.source_col === "") {
+      return `"${name}"의 적립금액 열을 선택해주세요.`;
+    }
+  }
+  return "";
+}
+
+function serializeRewardFields() {
+  return rewardFields.map((field) => ({ ...field }));
+}
+
+function saveCurrentSettings() {
+  if (!uploadedFile) return;
+  const store = readSettingsStore();
+  store[uploadedFile.name] = {
+    saved_at: Date.now(),
+    sheet_name: sheetSelect.value,
+    product_col: productColumn.value,
+    product_color: columnFilters.product.selected,
+    original_col: originalColumn.value,
+    original_color: columnFilters.original.selected,
+    final_price_col: finalPriceColumn.value,
+    final_price_color: columnFilters.final.selected,
+    category_col: categoryColumn.value,
+    start_row: startRow.value,
+    end_row: endRow.value,
+    extra_fields: serializeExtraFields(),
+    reward_fields: serializeRewardFields(),
+  };
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(store));
+}
+
+function getStoredSettingsForFile(fileName) {
+  const store = readSettingsStore();
+  return store[fileName] ?? null;
+}
+
+function restoreSettings(config) {
+  if (config.sheet_name && [...sheetSelect.options].some((option) => option.value === config.sheet_name)) {
+    sheetSelect.value = config.sheet_name;
+    sheetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  productColumn.value = config.product_col ?? "";
+  originalColumn.value = config.original_col ?? "";
+  finalPriceColumn.value = config.final_price_col ?? "";
+  categoryColumn.value = config.category_col ?? "";
+  startRow.value = config.start_row ?? startRow.value;
+  endRow.value = config.end_row ?? endRow.value;
+  syncTypedColumns();
+  columnFilters.product.selected = config.product_color ?? "";
+  columnFilters.original.selected = config.original_color ?? "";
+  columnFilters.final.selected = config.final_price_color ?? "";
+  extraFields = config.extra_fields ?? [];
+  rewardFields = config.reward_fields ?? [];
+  renderExtraFieldInputs();
+  renderRewardFieldInputs();
+  loadAllColumnColors();
+  updateCalculateButtonState();
+}
+
+function readSettingsStore() {
+  try {
+    return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+function cleanupStoredSettings() {
+  const store = readSettingsStore();
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  let changed = false;
+  Object.entries(store).forEach(([fileName, config]) => {
+    if (!config?.saved_at || config.saved_at < cutoff) {
+      delete store[fileName];
+      changed = true;
+    }
+  });
+  if (changed) localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(store));
+}
+
+function columnValue(index) {
+  return index === "" || index === null || index === undefined ? "" : columnLabel(Number(index));
+}
+
+function renderExtraResultHeaders() {
+  document.querySelectorAll("th[data-extra-column]").forEach((node) => node.remove());
+  const panel = visibleColumnsPanel;
+  panel.querySelectorAll("[data-extra-visible-column]").forEach((node) => node.closest("label").remove());
+  const rewardStartLabel = panel.querySelector('[data-visible-column="total_reward_amount"]')?.closest("label");
+  extraFields.forEach((field) => {
+    const header = document.createElement("th");
+    header.dataset.column = `extra_${field.id}`;
+    header.dataset.extraColumn = field.id;
+    header.className = "extra-column";
+    header.textContent = field.name;
+    extraColumnsAnchor.before(header);
+
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" data-visible-column="extra_${field.id}" data-extra-visible-column="${field.id}" checked /> ${escapeHtml(field.name)}`;
+    const checkbox = label.querySelector("input");
+    checkbox.addEventListener("change", () => {
+      const column = checkbox.dataset.visibleColumn;
+      if (checkbox.checked) hiddenColumns.delete(column);
+      else hiddenColumns.add(column);
+      applyVisibleColumns();
+    });
+    panel.insertBefore(label, rewardStartLabel);
+  });
+}
+
+
+
+
+function renderRewardFieldInputs() {
+  rewardFieldsList.innerHTML = "";
+  rewardFields.forEach((field) => {
+    field.name_choice ??= rewardFieldNameSuggestions.includes(field.name) ? field.name : "";
+    field.custom_name ??= field.name_choice === "custom" ? field.name : "";
+    const nameSelectId = `rewardNameSelect_${field.id}`;
+    const card = document.createElement("div");
+    card.className = "reward-field-card";
+    card.innerHTML = `
+      <label>
+        <span>\uD56D\uBAA9\uBA85</span>
+        <div class="custom-select reward-name-select" data-select-target="${nameSelectId}">
+          <button class="custom-select-trigger" type="button"></button>
+          <div class="custom-select-menu hidden"></div>
+        </div>
+        <select id="${nameSelectId}" data-role="name_choice" class="native-select-hidden" aria-hidden="true" tabindex="-1">
+          <option value="">\uD56D\uBAA9 \uC120\uD0DD</option>
+          <option value="\uC2A4\uB9C8\uC77C\uCE74\uB4DC">\uC2A4\uB9C8\uC77C\uCE74\uB4DC</option>
+          <option value="\uBA38\uB2C8\uCDA9\uC804">\uBA38\uB2C8\uCDA9\uC804</option>
+          <option value="\uAF2D\uBA64\uBC841">\uAF2D\uBA64\uBC841</option>
+          <option value="\uAF2D\uBA64\uBC842">\uAF2D\uBA64\uBC842</option>
+          <option value="custom">\uC9C1\uC811\uC785\uB825</option>
+        </select>
+        <div class="extra-custom-name-wrap hidden-field">
+          <input class="extra-custom-name" data-role="custom_name" value="${escapeAttribute(field.custom_name)}" placeholder="\uD56D\uBAA9\uBA85\uC744 \uC785\uB825\uD558\uC138\uC694" />
+          <button class="extra-custom-select-toggle" type="button" aria-label="\uD56D\uBAA9\uBA85 \uC120\uD0DD \uC5F4\uAE30"></button>
+          <div class="extra-custom-select-menu hidden">
+            <button type="button" data-name-choice="">\uD56D\uBAA9 \uC120\uD0DD</button>
+            <button type="button" data-name-choice="\uC2A4\uB9C8\uC77C\uCE74\uB4DC">\uC2A4\uB9C8\uC77C\uCE74\uB4DC</button>
+            <button type="button" data-name-choice="\uBA38\uB2C8\uCDA9\uC804">\uBA38\uB2C8\uCDA9\uC804</button>
+            <button type="button" data-name-choice="\uAF2D\uBA64\uBC841">\uAF2D\uBA64\uBC841</button>
+            <button type="button" data-name-choice="\uAF2D\uBA64\uBC842">\uAF2D\uBA64\uBC842</button>
+          </div>
+        </div>
+      </label>
+      <label>
+        <span>\uC801\uB9BD\uAE08\uC561 \uC5F4</span>
+        <input data-role="source_col" placeholder="\uC608: H" value="${columnValue(field.source_col)}" />
+      </label>
+      <button class="ghost-button extra-field-remove" type="button">\uC0AD\uC81C</button>
+    `;
+    const nameSelect = card.querySelector('[data-role="name_choice"]');
+    nameSelect.value = field.name_choice;
+    rewardFieldsList.appendChild(card);
+    mountCustomSelect(card.querySelector(`[data-select-target="${nameSelectId}"]`), nameSelect);
+
+    card.querySelectorAll("input").forEach((input) => {
+      input.addEventListener("focus", () => {
+        if (input.dataset.role === "custom_name") return;
+        activeExtraFieldTarget = input;
+        setActivePick("extra");
+      });
+      input.addEventListener("input", () => updateRewardFieldFromCard(field, card));
+    });
+    nameSelect.addEventListener("change", () => {
+      updateRewardFieldFromCard(field, card);
+      updateRewardNameVisibility(card, field.name_choice);
+    });
+    const customToggle = card.querySelector(".extra-custom-select-toggle");
+    const customMenu = card.querySelector(".extra-custom-select-menu");
+    customToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      customMenu.classList.toggle("hidden");
+    });
+    customMenu.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => {
+        field.name_choice = button.dataset.nameChoice;
+        nameSelect.value = field.name_choice;
+        updateRewardFieldFromCard(field, card);
+        updateRewardNameVisibility(card, field.name_choice);
+        syncCustomSelect(nameSelect);
+        customMenu.classList.add("hidden");
+      });
+    });
+    card.querySelector(".extra-field-remove").addEventListener("click", () => {
+      rewardFields = rewardFields.filter((item) => item.id !== field.id);
+      renderRewardFieldInputs();
+    });
+    updateRewardNameVisibility(card, field.name_choice);
+  });
+}
+
+function updateRewardFieldFromCard(field, card) {
+  field.name_choice = card.querySelector('[data-role="name_choice"]').value;
+  field.custom_name = card.querySelector('[data-role="custom_name"]').value;
+  field.name = field.name_choice === "custom" ? field.custom_name || "\uC801\uB9BD\uAE08\uC561" : field.name_choice || "\uC801\uB9BD\uAE08\uC561";
+  const parsed = parseColumnInput(card.querySelector('[data-role="source_col"]').value);
+  field.source_col = parsed === null ? "" : parsed;
+}
+
+function updateRewardNameVisibility(card, nameChoice) {
+  card.querySelector(".reward-name-select").classList.toggle("hidden-field", nameChoice === "custom");
+  card.querySelector(".extra-custom-name-wrap").classList.toggle("hidden-field", nameChoice !== "custom");
+}
+
+function renderRewardResultHeaders() {
+  document.querySelectorAll("th[data-reward-column]").forEach((node) => node.remove());
+  const panel = visibleColumnsPanel;
+  panel.querySelectorAll("[data-reward-visible-column]").forEach((node) => node.closest("label").remove());
+  const totalRewardLabel = panel.querySelector('[data-visible-column="total_reward_amount"]')?.closest("label");
+  rewardFields.forEach((field) => {
+    const header = document.createElement("th");
+    header.dataset.column = `reward_${field.id}`;
+    header.dataset.rewardColumn = field.id;
+    header.className = `reward-column${rewardFields.indexOf(field) === 0 ? " reward-group-start" : ""}`;
+    header.textContent = field.name;
+    rewardColumnsAnchor.before(header);
+
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" data-visible-column="reward_${field.id}" data-reward-visible-column="${field.id}" checked /> ${escapeHtml(field.name)}`;
+    const checkbox = label.querySelector("input");
+    checkbox.addEventListener("change", () => {
+      const column = checkbox.dataset.visibleColumn;
+      if (checkbox.checked) hiddenColumns.delete(column);
+      else hiddenColumns.add(column);
+      applyVisibleColumns();
+    });
+    panel.insertBefore(label, totalRewardLabel);
+  });
+}
+
+function startInlineEdit(button, row) {
+  const cell = button.closest("td");
+  const column = cell?.dataset.column ?? "product_name";
+  if (!cell || column === "total_discount_amount" || column === "discount_rate" || column === "total_reward_amount" || column === "effective_price") {
+    return;
+  }
+
+  const input = document.createElement("input");
+  input.className = "inline-edit-input";
+  input.value = getEditableValue(row, column);
+  button.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const commit = () => {
+    applyEditedValue(row, column, input.value);
+    recalculateDerivedValues(row);
+    renderFilteredResults();
+  };
+
+  input.addEventListener("blur", commit, { once: true });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") input.blur();
+    if (event.key === "Escape") renderFilteredResults();
+  });
+}
+
+function getEditableValue(row, column) {
+  if (column === "product_name") return row.product_name ?? "";
+  if (column === "original_price") return row.original_price ?? "";
+  if (column === "discount_amount") return row.discount_amount ?? "";
+  if (column.startsWith("extra_")) return row.extra_values?.[column.replace("extra_", "")] ?? "";
+  if (column.startsWith("reward_")) return row.reward_values?.[column.replace("reward_", "")] ?? "";
+  return "";
+}
+
+function applyEditedValue(row, column, value) {
+  if (column === "product_name") {
+    row.product_name = value;
+    return;
+  }
+  const numericValue = parseEditedNumber(value);
+  if (column === "original_price") row.original_price = numericValue;
+  else if (column === "discount_amount") row.discount_amount = numericValue;
+  else if (column.startsWith("extra_")) {
+    row.extra_values[column.replace("extra_", "")] = numericValue;
+  } else if (column.startsWith("reward_")) {
+    row.reward_values[column.replace("reward_", "")] = numericValue;
+  }
+}
+
+function parseEditedNumber(value) {
+  const cleaned = String(value).replace(/[^\d.-]/g, "");
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function recalculateDerivedValues(row) {
+  row.total_discount_amount = Math.round((row.original_price ?? 0) - (row.discount_amount ?? 0));
+  row.discount_rate = row.original_price > 0 ? Math.round((row.total_discount_amount / row.original_price) * 1000) / 10 : 0;
+  row.total_reward_amount = Object.values(row.reward_values ?? {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  row.effective_price = Math.round((row.discount_amount ?? 0) - row.total_reward_amount);
+}
+
+function renderProductFilterInputs() {
+  productFilterList.innerHTML = "";
+  productNameFilters.forEach((value, index) => {
+    const row = document.createElement("div");
+    row.className = "product-filter-row";
+    row.innerHTML = `
+      <input type="text" value="${escapeAttribute(value)}" placeholder="제외할 문구" />
+      <button type="button" aria-label="삭제">×</button>
+    `;
+    const input = row.querySelector("input");
+    const removeButton = row.querySelector("button");
+    input.addEventListener("input", () => {
+      productNameFilters[index] = input.value;
+      renderFilteredResults();
+    });
+    removeButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      productNameFilters.splice(index, 1);
+      renderProductFilterInputs();
+      renderFilteredResults();
+      productFilterPanel.classList.remove("hidden");
+    });
+    productFilterList.appendChild(row);
+  });
+}
+
+function setStatus(message, type) {
+  statusCard.textContent = message;
+  statusCard.className = `panel status-panel ${type}`;
+}
+
+function hideResults() {
+  resultSection.classList.add("hidden");
+}
+
+function showConfirmDialog(message) {
+  confirmMessage.textContent = message;
+  confirmDialog.classList.remove("hidden");
+}
+
+function hideConfirmDialog() {
+  confirmDialog.classList.add("hidden");
+}
+
+function showMessageDialog(message) {
+  messageText.textContent = message;
+  messageDialog.classList.remove("hidden");
+}
+
+function hideMessageDialog() {
+  messageDialog.classList.add("hidden");
+}
+
+function showRestoreDialog() {
+  restoreDialog.classList.remove("hidden");
+}
+
+function hideRestoreDialog() {
+  restoreDialog.classList.add("hidden");
+}
+
+function setCalculating(isCalculating) {
+  calculateButton.disabled = isCalculating || !hasRequiredColumns();
+  calculateButton.textContent = isCalculating ? "계산 중..." : "계산하기";
+  calculateButton.classList.toggle("loading", isCalculating);
+}
+
+function hasRequiredColumns() {
+  return Boolean(productColumn.dataset.index && originalColumn.dataset.index && finalPriceColumn.dataset.index);
+}
+
+function updateCalculateButtonState() {
+  calculateButton.disabled = !hasRequiredColumns();
+}
+
+function initializeCustomSelects() {
+  document.querySelectorAll(".custom-select").forEach((wrapper) => {
+    const select = document.querySelector(`#${wrapper.dataset.selectTarget}`);
+    mountCustomSelect(wrapper, select);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".custom-select")) closeAllCustomSelects();
+    if (!event.target.closest(".extra-custom-name-wrap")) {
+      document.querySelectorAll(".extra-custom-select-menu").forEach((menu) => menu.classList.add("hidden"));
+    }
+  });
+}
+
+function closeAllCustomSelects(exceptWrapper = null) {
+  document.querySelectorAll(".custom-select").forEach((wrapper) => {
+    if (wrapper === exceptWrapper) return;
+    wrapper.classList.remove("open");
+    wrapper.querySelector(".custom-select-menu").classList.add("hidden");
+  });
+}
+
+function mountCustomSelect(wrapper, select) {
+  if (wrapper.dataset.mounted === "true") {
+    syncCustomSelect(select);
+    return;
+  }
+  wrapper.dataset.mounted = "true";
+  const trigger = wrapper.querySelector(".custom-select-trigger");
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeAllCustomSelects(wrapper);
+    wrapper.classList.toggle("open");
+    wrapper.querySelector(".custom-select-menu").classList.toggle("hidden");
+  });
+  select.addEventListener("change", () => syncCustomSelect(select));
+  syncCustomSelect(select);
+}
+
+function syncCustomSelect(select) {
+  const wrapper = document.querySelector(`.custom-select[data-select-target="${select.id}"]`);
+  if (!wrapper) return;
+  const trigger = wrapper.querySelector(".custom-select-trigger");
+  const menu = wrapper.querySelector(".custom-select-menu");
+  const selectedOption = select.options[select.selectedIndex];
+
+  trigger.textContent = selectedOption?.textContent ?? "";
+  menu.innerHTML = "";
+
+  [...select.options].forEach((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `custom-select-option${option.value === select.value ? " selected" : ""}`;
+    button.textContent = option.textContent;
+    button.addEventListener("click", () => {
+      select.value = option.value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      wrapper.classList.remove("open");
+      menu.classList.add("hidden");
+    });
+    menu.appendChild(button);
+  });
+
+  if (select.id === "sheetSelect") {
+    requestAnimationFrame(() => {
+      menu.classList.toggle("sheet-scrollable", menu.scrollWidth > menu.clientWidth);
+    });
+  }
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // file:// 환경 등에서는 아래 방식으로 한 번 더 시도합니다.
+  }
+
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
+function startProductColumnResize(event) {
+  event.preventDefault();
+  const startX = event.clientX;
+  const startWidth = productNameHeader.getBoundingClientRect().width;
+
+  function onPointerMove(moveEvent) {
+    productColumnWidth = Math.max(180, startWidth + moveEvent.clientX - startX);
+    applyProductColumnWidth();
+  }
+
+  function onPointerUp() {
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+  }
+
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+}
+
+function applyProductColumnWidth() {
+  if (productColumnWidth === null) {
+    productNameHeader.style.removeProperty("width");
+  } else {
+    productNameHeader.style.width = `${productColumnWidth}px`;
+  }
+  resultBody.querySelectorAll("tr").forEach((row) => {
+    if (!row.children[0]) return;
+    if (productColumnWidth === null) {
+      row.children[0].style.removeProperty("width");
+      row.children[0].style.removeProperty("max-width");
+      return;
+    }
+    row.children[0].style.width = `${productColumnWidth}px`;
+    row.children[0].style.maxWidth = `${productColumnWidth}px`;
+  });
+}

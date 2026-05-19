@@ -1,0 +1,65 @@
+﻿<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>할인금액 계산기</title>
+    <link rel="stylesheet" href="./styles.css?v=20260519-8" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="hero">
+        <p class="eyebrow">Excel → Copy-ready</p>
+        <h1>할인금액 계산기</h1>
+      </section>
+
+      <section class="panel upload-panel">
+        <label class="file-drop" for="excelFile">
+          <input id="excelFile" type="file" accept=".xlsx,.xls" />
+          <span class="excel-upload-icon" aria-hidden="true"><img src="./microsoft-excel-logo.png" alt="" /></span>
+          <span class="file-title">엑셀 파일을 선택하세요</span>
+        </label>
+      </section>
+
+      <section id="statusCard" class="panel status-panel hidden" aria-live="polite"></section>
+
+      <section id="mappingSection" class="panel mapping-panel hidden">
+        <div class="section-heading"><div><h2>계산할 위치 지정</h2><p>시트를 고른 뒤 아래 미리보기에서 필요한 열을 직접 선택하세요.</p></div></div>
+        <div class="mapping-controls">
+          <label><span>시트</span><div class="custom-select" data-select-target="sheetSelect"><button class="custom-select-trigger" type="button"></button><div class="custom-select-menu hidden"></div></div><select id="sheetSelect" class="native-select-hidden" aria-hidden="true" tabindex="-1"></select></label>
+          <label class="column-field"><span>제품명 열</span><div class="column-input-wrap"><input id="productColumn" placeholder="예: A" /><div id="productColorPicker" class="inline-color-picker hidden"><button id="productColorTrigger" class="inline-color-trigger" type="button">+</button><div id="productColorChoices" class="color-choices hidden"></div></div></div></label>
+          <label class="column-field"><span>기존금액 열</span><div class="column-input-wrap"><input id="originalColumn" placeholder="예: F" /><div id="originalColorPicker" class="inline-color-picker hidden"><button id="originalColorTrigger" class="inline-color-trigger" type="button">+</button><div id="originalColorChoices" class="color-choices hidden"></div></div></div></label>
+          <label class="column-field"><span>최종가 열</span><div class="column-input-wrap"><input id="finalPriceColumn" placeholder="예: G" /><div id="finalColorPicker" class="inline-color-picker hidden"><button id="finalColorTrigger" class="inline-color-trigger" type="button">+</button><div id="finalColorChoices" class="color-choices hidden"></div></div></div></label>
+          <label class="column-field"><span>카테고리 열(선택)</span><div class="column-input-wrap"><input id="categoryColumn" placeholder="예: B" /></div></label>
+          <label><span>시작 행</span><input id="startRow" type="number" min="1" /></label>
+          <label><span>끝 행</span><input id="endRow" type="number" min="1" /></label>
+        </div>
+        <div class="selection-actions"><button id="calculateButton" class="primary-button" type="button">계산하기</button><label class="color-load-option"><input id="autoLoadColorFilters" type="checkbox" /><span id="colorLoadOptionText">열 선택 시 색상값 불러오기</span></label></div>
+        <section class="extra-fields-section"><div class="extra-fields-heading"><div><h3>추가 항목</h3><p>필요한 열을 더 만들어 상품별 결과에 함께 표시할 수 있습니다.</p></div><button id="addExtraFieldButton" class="ghost-button" type="button">+ 추가 항목</button></div><div id="extraFieldsList" class="extra-fields-list"></div></section>
+        <section class="reward-fields-section"><div class="extra-fields-heading"><div><h3>적립금액</h3><p>적립금액 열을 추가하면 체감가까지 함께 계산합니다.</p></div><button id="addRewardFieldButton" class="ghost-button" type="button">+ 적립금액</button></div><div id="rewardFieldsList" class="extra-fields-list"></div></section>
+        <div class="preview-help"><strong id="currentPickLabel">제품명</strong> 입력칸이 선택되어 있습니다. 미리보기에서 해당 열의 아무 셀이나 클릭하세요.</div>
+        <div class="preview-wrap"><table id="previewTable" class="preview-table"></table></div>
+      </section>
+
+      <section id="resultSection" class="results hidden">
+        <div class="summary-grid single-summary"><article class="summary-card"><span>상품 수</span><strong id="itemCount">0개</strong></article></div>
+        <section class="panel table-panel">
+          <div class="section-heading"><div><h2>상품별 결과</h2><p>각 값을 클릭하면 바로 복사됩니다.</p></div><div class="result-heading-actions"><button id="expandResultsButton" class="ghost-button" type="button">확장</button><button id="editResultsButton" class="ghost-button" type="button">편집</button></div></div>
+          <div class="result-tools">
+            <label><span>제품명 검색</span><div class="search-with-filter"><input id="productSearch" type="search" placeholder="제품명을 입력하세요" /><button id="productFilterButton" class="product-filter-button" type="button" aria-label="제품명 필터">⌄</button><div id="productFilterPanel" class="product-filter-panel hidden"><section class="quick-cleanup-section"><strong>빠른 정리</strong><div class="quick-cleanup-grid"><label class="product-filter-option"><input id="removeParenthesesText" type="checkbox" />괄호 안 제거</label><label class="product-filter-option"><input id="removeBracketsText" type="checkbox" />대괄호 안 제거</label><label class="product-filter-option"><input id="removeTrailingModelCode" type="checkbox" />끝 모델코드 제거</label><label class="product-filter-option"><input id="removeAfterDelimiter" type="checkbox" />구분자 뒤 제거</label><label class="product-filter-option"><input id="removeLeadingText" type="checkbox" />맨 앞 문구 제거</label><label class="product-filter-option"><input id="titleCaseProductName" type="checkbox" />대/소문자</label></div><div id="leadingTextOptions" class="quick-cleanup-detail hidden"><input id="leadingTextValue" type="text" placeholder="예: TURTLE BEACH" /></div><div id="delimiterOptions" class="quick-cleanup-detail hidden"><input id="delimiterValue" type="text" placeholder="구분자 입력 예: /" value="/" /></div></section><div class="manual-filter-heading">직접 제외할 문구</div><div id="productFilterList" class="product-filter-list"></div><button id="addProductFilterButton" class="ghost-button" type="button">문구 추가</button></div></div></label>
+            <label><span>정렬 기준</span><div class="custom-select" data-select-target="sortField"><button class="custom-select-trigger" type="button"></button><div class="custom-select-menu hidden"></div></div><select id="sortField" class="native-select-hidden" aria-hidden="true" tabindex="-1"><option value="none">기본 순서</option><option value="discount_amount">최종가</option><option value="total_discount_amount">총 할인금액</option><option value="discount_rate">할인률</option></select></label>
+            <label><span>정렬 순서</span><div class="custom-select" data-select-target="sortDirection"><button class="custom-select-trigger" type="button"></button><div class="custom-select-menu hidden"></div></div><select id="sortDirection" class="native-select-hidden" aria-hidden="true" tabindex="-1"><option value="desc">내림차순</option><option value="asc">오름차순</option></select></label>
+            <div class="visible-columns-wrap"><span>표시 항목</span><button id="visibleColumnsButton" class="visible-columns-button" type="button" aria-label="표시 항목 선택">⌄</button><div id="visibleColumnsPanel" class="visible-columns-panel hidden"><label><input type="checkbox" data-visible-column="product_name" checked /> 제품명</label><label><input type="checkbox" data-visible-column="original_price" checked /> 기존금액</label><label><input type="checkbox" data-visible-column="discount_amount" checked /> 최종가</label><label><input type="checkbox" data-visible-column="total_reward_amount" checked /> 총 적립금액</label><label><input type="checkbox" data-visible-column="effective_price" checked /> 체감가</label><label><input type="checkbox" data-visible-column="total_discount_amount" checked /> 총 할인금액</label><label><input type="checkbox" data-visible-column="discount_rate" checked /> 할인률</label></div></div>
+            <div class="format-options-wrap"><span>표기 옵션</span><label><input id="showWonSuffix" type="checkbox" checked /> 원 표시</label><label><input id="showDiscountMinus" type="checkbox" /> 총 할인금액 앞 - 표시</label><label><input id="highlightFinalPrices" type="checkbox" /> 최종가·체감가 진한 배경</label></div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th id="productNameHeader" class="resizable-column">제품명<span id="productNameResizer" class="column-resizer" aria-hidden="true"></span></th><th data-column="original_price">기존금액</th><th data-column="discount_amount">최종가</th><th id="extraColumnsAnchor" class="hidden"></th><th id="rewardColumnsAnchor" class="hidden"></th><th data-column="total_reward_amount" class="reward-column reward-group-start">총 적립금액</th><th data-column="effective_price" class="reward-column reward-group-end">체감가</th><th data-column="total_discount_amount">총 할인금액</th><th data-column="discount_rate">할인률</th></tr></thead><tbody id="resultBody"></tbody></table></div>
+          <p id="emptyResultMessage" class="empty-result hidden">조건에 맞는 상품이 없습니다.</p>
+        </section>
+      </section>
+    </main>
+    <div id="confirmDialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirmTitle"><div class="dialog-card"><h2 id="confirmTitle">확인이 필요합니다</h2><p id="confirmMessage"></p><div class="dialog-actions"><button id="confirmNoButton" class="ghost-button" type="button">아니오</button><button id="confirmYesButton" class="primary-button" type="button">예</button></div></div></div>
+    <div id="messageDialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="messageTitle"><div class="dialog-card"><h2 id="messageTitle">안내</h2><p id="messageText"></p><div class="dialog-actions"><button id="messageCloseButton" class="primary-button" type="button">확인</button></div></div></div>
+    <div id="restoreDialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="restoreTitle"><div class="dialog-card"><h2 id="restoreTitle">저장된 내역이 있습니다</h2><p>이 파일에 대해 이전에 저장한 설정이 있습니다. 불러오시겠습니까?</p><div class="dialog-actions"><button id="restoreNoButton" class="ghost-button" type="button">아니오</button><button id="restoreYesButton" class="primary-button" type="button">예</button></div></div></div>
+    <script src="./app.js?v=20260519-8"></script>
+  </body>
+</html>
