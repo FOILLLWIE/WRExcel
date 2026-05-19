@@ -85,7 +85,13 @@ let extraFields = [];
 let rewardFields = [];
 let activeExtraFieldTarget = null;
 let pendingRestoreConfig = null;
-const SETTINGS_STORAGE_KEY = "discount-calculator-settings-v1";
+let currentFileKey = "";
+let settingsSaveTimer = null;
+const DB_NAME = "discountCalculatorDB";
+const DB_VERSION = 1;
+const SETTINGS_STORE_NAME = "fileSettings";
+const SETTINGS_RETENTION_DAYS = 30;
+const fallbackSettingsStore = new Map();
 const extraFieldNameSuggestions = ["선택쿠폰", "중복쿠폰", "카드할인"];
 const rewardFieldNameSuggestions = ["\uC2A4\uB9C8\uC77C\uCE74\uB4DC", "\uBA38\uB2C8\uCDA9\uC804", "\uAF2D\uBA64\uBC841", "\uAF2D\uBA64\uBC842"];
 const worksheetMergeRangeCache = new WeakMap();
@@ -107,6 +113,7 @@ fileInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
   uploadedFile = file;
+  currentFileKey = createFileKey(file);
   fileDrop.classList.add("uploaded");
   hideResults();
   extraFields = [];
@@ -119,7 +126,7 @@ fileInput.addEventListener("change", async (event) => {
     populateSheetSelect(workbookPreview.sheets);
     renderSheet(workbookPreview.sheets[0].name);
     mappingSection.classList.remove("hidden");
-    const savedConfig = getStoredSettingsForFile(file.name);
+    const savedConfig = await loadFileSettings(currentFileKey);
     if (savedConfig) {
       pendingRestoreConfig = savedConfig;
       showRestoreDialog();
@@ -130,7 +137,10 @@ fileInput.addEventListener("change", async (event) => {
   }
 });
 
-sheetSelect.addEventListener("change", () => renderSheet(sheetSelect.value));
+sheetSelect.addEventListener("change", () => {
+  renderSheet(sheetSelect.value);
+  queueSaveCurrentSettings();
+});
 productColumn.addEventListener("focus", () => setActivePick("product"));
 originalColumn.addEventListener("focus", () => setActivePick("original"));
 finalPriceColumn.addEventListener("focus", () => setActivePick("final"));
@@ -198,7 +208,10 @@ confirmNoButton.addEventListener("click", () => {
 
 messageCloseButton.addEventListener("click", hideMessageDialog);
 restoreYesButton.addEventListener("click", () => {
-  if (pendingRestoreConfig) restoreSettings(pendingRestoreConfig);
+  if (pendingRestoreConfig) {
+    restoreSettings(pendingRestoreConfig);
+    queueSaveCurrentSettings();
+  }
   pendingRestoreConfig = null;
   hideRestoreDialog();
 });
@@ -254,13 +267,23 @@ visibleColumnsPanel.querySelectorAll("[data-visible-column]").forEach((checkbox)
     applyVisibleColumns();
   });
 });
-showWonSuffix.addEventListener("change", renderFilteredResults);
-showDiscountMinus.addEventListener("change", renderFilteredResults);
-highlightFinalPrices.addEventListener("change", applyPriceHighlighting);
+showWonSuffix.addEventListener("change", () => {
+  renderFilteredResults();
+  queueSaveCurrentSettings();
+});
+showDiscountMinus.addEventListener("change", () => {
+  renderFilteredResults();
+  queueSaveCurrentSettings();
+});
+highlightFinalPrices.addEventListener("change", () => {
+  applyPriceHighlighting();
+  queueSaveCurrentSettings();
+});
 titleCaseProductName.addEventListener("change", renderFilteredResults);
 autoLoadColorFilters.addEventListener("change", () => {
   if (autoLoadColorFilters.checked) loadAllColumnColors();
   else Object.keys(columnFilters).forEach(resetColumnColors);
+  queueSaveCurrentSettings();
 });
 productNameResizer.addEventListener("pointerdown", startProductColumnResize);
 editResultsButton.addEventListener("click", () => {
@@ -385,6 +408,7 @@ function selectCell(cell) {
   if (activePick === "product") setActivePick("original");
   else if (activePick === "original") setActivePick("final");
   updateCalculateButtonState();
+  queueSaveCurrentSettings();
 }
 
 [productColumn, originalColumn, finalPriceColumn, categoryColumn].forEach((input) => {
@@ -399,11 +423,18 @@ function selectCell(cell) {
     if (autoLoadColorFilters.checked) loadColumnColors(columnKeyForInput(input));
     else resetColumnColors(columnKeyForInput(input));
     updateCalculateButtonState();
+    queueSaveCurrentSettings();
   });
 });
 
-startRow.addEventListener("change", loadAllColumnColors);
-endRow.addEventListener("change", loadAllColumnColors);
+startRow.addEventListener("change", () => {
+  loadAllColumnColors();
+  queueSaveCurrentSettings();
+});
+endRow.addEventListener("change", () => {
+  loadAllColumnColors();
+  queueSaveCurrentSettings();
+});
 sheetSelect.addEventListener("change", () => {
   Object.keys(columnFilters).forEach(resetColumnColors);
 });
@@ -506,6 +537,7 @@ function bindColorChoiceEvents(key) {
       });
       updateColorTrigger(key);
       filter.choices.classList.add("hidden");
+      queueSaveCurrentSettings();
     });
   });
 }
@@ -821,9 +853,13 @@ function cleanExcelCellValue(value) {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (typeof value === "object") {
     if ("result" in value) return cleanExcelCellValue(value.result);
-    if ("text" in value) return value.text ?? "";
+    if ("text" in value) return cleanExcelCellValue(value.text);
     if ("richText" in value) return value.richText.map((part) => part.text).join("");
-    if ("hyperlink" in value && "text" in value) return value.text;
+    if ("hyperlink" in value && "text" in value) return cleanExcelCellValue(value.text);
+    if ("formula" in value || "sharedFormula" in value) return 0;
+    if ("error" in value) return "";
+    if (Object.keys(value).length === 0) return "";
+    return "";
   }
   return value;
 }
@@ -1070,8 +1106,15 @@ function formatRate(value) {
 }
 
 function formatExtraValue(value) {
-  if (value === null || value === undefined || value === "") return "";
-  return typeof value === "number" ? formatCurrency(value) : String(value);
+  const normalized = normalizeDisplayValue(value);
+  if (normalized === null || normalized === undefined || normalized === "") return "";
+  return typeof normalized === "number" ? formatCurrency(normalized) : String(normalized);
+}
+
+function normalizeDisplayValue(value) {
+  const cleaned = cleanExcelCellValue(value);
+  if (cleaned === null || cleaned === undefined) return "";
+  return cleaned;
 }
 
 function displayProductName(value) {
@@ -1156,6 +1199,7 @@ function addExtraField() {
     right_col: "",
   });
   renderExtraFieldInputs();
+  queueSaveCurrentSettings();
 }
 
 function addRewardField() {
@@ -1167,6 +1211,7 @@ function addRewardField() {
     source_col: "",
   });
   renderRewardFieldInputs();
+  queueSaveCurrentSettings();
 }
 
 function renderExtraFieldInputs() {
@@ -1179,6 +1224,7 @@ function renderExtraFieldInputs() {
     const card = document.createElement("div");
     card.className = "extra-field-card";
     card.dataset.fieldId = field.id;
+    card.dataset.mode = field.mode || "raw";
     card.innerHTML = `
       <label>
         <span>항목명</span>
@@ -1251,12 +1297,14 @@ function renderExtraFieldInputs() {
       input.addEventListener("input", () => {
         updateExtraFieldFromCard(field, card);
         persistDynamicColumnInput(input);
+        queueSaveCurrentSettings();
       });
     });
     nameSelect.addEventListener("change", () => {
       updateExtraFieldFromCard(field, card);
       updateExtraNameVisibility(card, field.name_choice);
       activateDynamicFieldColumnTarget(card);
+      queueSaveCurrentSettings();
     });
     const customToggle = card.querySelector(".extra-custom-select-toggle");
     const customMenu = card.querySelector(".extra-custom-select-menu");
@@ -1273,16 +1321,19 @@ function renderExtraFieldInputs() {
         syncCustomSelect(nameSelect);
         activateDynamicFieldColumnTarget(card);
         customMenu.classList.add("hidden");
+        queueSaveCurrentSettings();
       });
     });
     modeSelect.addEventListener("change", () => {
       updateExtraFieldFromCard(field, card);
       updateExtraFieldVisibility(card, field.mode);
       activateDynamicFieldColumnTarget(card);
+      queueSaveCurrentSettings();
     });
     card.querySelector(".extra-field-remove").addEventListener("click", () => {
       extraFields = extraFields.filter((item) => item.id !== field.id);
       renderExtraFieldInputs();
+      queueSaveCurrentSettings();
     });
     updateExtraNameVisibility(card, field.name_choice);
     updateExtraFieldVisibility(card, field.mode);
@@ -1316,6 +1367,7 @@ function updateExtraNameVisibility(card, nameChoice) {
 }
 
 function updateExtraFieldVisibility(card, mode) {
+  card.dataset.mode = mode || "raw";
   card.querySelector('[data-field="source_col"]').classList.toggle("hidden-field", mode !== "raw");
   card.querySelector('[data-field="operand_col"]').classList.toggle("hidden-field", mode !== "original_minus");
   card.querySelector('[data-field="left_col"]').classList.toggle("hidden-field", mode !== "column_minus");
@@ -1352,53 +1404,117 @@ function serializeRewardFields() {
   return rewardFields.map((field) => ({ ...field }));
 }
 
-function saveCurrentSettings() {
-  if (!uploadedFile) return;
-  const store = readSettingsStore();
-  store[uploadedFile.name] = {
-    saved_at: Date.now(),
-    sheet_name: sheetSelect.value,
-    product_col: productColumn.value,
-    product_color: columnFilters.product.selected,
-    original_col: originalColumn.value,
-    original_color: columnFilters.original.selected,
-    final_price_col: finalPriceColumn.value,
-    final_price_color: columnFilters.final.selected,
-    category_col: categoryColumn.value,
-    start_row: startRow.value,
-    end_row: endRow.value,
-    extra_fields: serializeExtraFields(),
-    reward_fields: serializeRewardFields(),
-  };
-  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(store));
+function createFileKey(file) {
+  return `${file.name}_${file.size}_${file.lastModified}`;
 }
 
-function getStoredSettingsForFile(fileName) {
-  const store = readSettingsStore();
-  return store[fileName] ?? null;
+function getColumnLetterFromInput(input) {
+  const parsed = normalizeColumnIndexValue(input.dataset.index ?? input.value);
+  return parsed === null ? "" : columnLabel(parsed);
+}
+
+function buildCurrentSettingsData() {
+  if (!uploadedFile || !currentFileKey) return null;
+  return {
+    fileKey: currentFileKey,
+    fileName: uploadedFile.name,
+    savedAt: Date.now(),
+    sheetName: sheetSelect.value,
+    mapping: {
+      product: getColumnLetterFromInput(productColumn),
+      original: getColumnLetterFromInput(originalColumn),
+      finalPrice: getColumnLetterFromInput(finalPriceColumn),
+      category: getColumnLetterFromInput(categoryColumn),
+    },
+    range: {
+      startRow: Number(startRow.value || 1),
+      endRow: Number(endRow.value || 1),
+    },
+    options: {
+      autoLoadColorFilters: Boolean(autoLoadColorFilters.checked),
+      showWonSuffix: Boolean(showWonSuffix.checked),
+      showDiscountMinus: Boolean(showDiscountMinus.checked),
+      highlightFinalPrices: Boolean(highlightFinalPrices.checked),
+      productColor: columnFilters.product.selected,
+      originalColor: columnFilters.original.selected,
+      finalPriceColor: columnFilters.final.selected,
+    },
+    extraFields: serializeExtraFields(),
+    rewardFields: serializeRewardFields(),
+  };
+}
+
+function queueSaveCurrentSettings() {
+  if (!uploadedFile || !currentFileKey) return;
+  window.clearTimeout(settingsSaveTimer);
+  settingsSaveTimer = window.setTimeout(() => {
+    saveCurrentSettings();
+  }, 250);
+}
+
+async function saveCurrentSettings() {
+  const data = buildCurrentSettingsData();
+  if (!data) return;
+  try {
+    await saveFileSettings(data.fileKey, data);
+  } catch (error) {
+    console.warn("Failed to save file settings.", error);
+  }
+}
+
+function normalizeStoredConfig(config) {
+  if (!config) return null;
+  if (config.mapping || config.range || config.options) {
+    return {
+      sheet_name: config.sheetName ?? config.sheet_name ?? sheetSelect.value,
+      product_col: config.mapping?.product ?? "",
+      product_color: config.options?.productColor ?? "",
+      original_col: config.mapping?.original ?? "",
+      original_color: config.options?.originalColor ?? "",
+      final_price_col: config.mapping?.finalPrice ?? "",
+      final_price_color: config.options?.finalPriceColor ?? "",
+      category_col: config.mapping?.category ?? "",
+      start_row: config.range?.startRow ?? "",
+      end_row: config.range?.endRow ?? "",
+      auto_load_color_filters: config.options?.autoLoadColorFilters,
+      show_won_suffix: config.options?.showWonSuffix,
+      show_discount_minus: config.options?.showDiscountMinus,
+      highlight_final_prices: config.options?.highlightFinalPrices,
+      extra_fields: config.extraFields ?? [],
+      reward_fields: config.rewardFields ?? [],
+    };
+  }
+  return config;
 }
 
 function restoreSettings(config) {
-  if (config.sheet_name && [...sheetSelect.options].some((option) => option.value === config.sheet_name)) {
-    sheetSelect.value = config.sheet_name;
+  const normalizedConfig = normalizeStoredConfig(config);
+  if (!normalizedConfig) return;
+  if (normalizedConfig.sheet_name && [...sheetSelect.options].some((option) => option.value === normalizedConfig.sheet_name)) {
+    sheetSelect.value = normalizedConfig.sheet_name;
     sheetSelect.dispatchEvent(new Event("change", { bubbles: true }));
   }
-  productColumn.value = config.product_col ?? "";
-  originalColumn.value = config.original_col ?? "";
-  finalPriceColumn.value = config.final_price_col ?? "";
-  categoryColumn.value = config.category_col ?? "";
-  startRow.value = config.start_row ?? startRow.value;
-  endRow.value = config.end_row ?? endRow.value;
+  productColumn.value = normalizedConfig.product_col ?? "";
+  originalColumn.value = normalizedConfig.original_col ?? "";
+  finalPriceColumn.value = normalizedConfig.final_price_col ?? "";
+  categoryColumn.value = normalizedConfig.category_col ?? "";
+  startRow.value = normalizedConfig.start_row ?? startRow.value;
+  endRow.value = normalizedConfig.end_row ?? endRow.value;
+  if (normalizedConfig.auto_load_color_filters !== undefined) autoLoadColorFilters.checked = Boolean(normalizedConfig.auto_load_color_filters);
+  if (normalizedConfig.show_won_suffix !== undefined) showWonSuffix.checked = Boolean(normalizedConfig.show_won_suffix);
+  if (normalizedConfig.show_discount_minus !== undefined) showDiscountMinus.checked = Boolean(normalizedConfig.show_discount_minus);
+  if (normalizedConfig.highlight_final_prices !== undefined) highlightFinalPrices.checked = Boolean(normalizedConfig.highlight_final_prices);
   syncTypedColumns();
-  columnFilters.product.selected = config.product_color ?? "";
-  columnFilters.original.selected = config.original_color ?? "";
-  columnFilters.final.selected = config.final_price_color ?? "";
-  extraFields = (config.extra_fields ?? []).map(normalizeExtraFieldConfig);
-  rewardFields = (config.reward_fields ?? []).map(normalizeRewardFieldConfig);
+  columnFilters.product.selected = normalizedConfig.product_color ?? "";
+  columnFilters.original.selected = normalizedConfig.original_color ?? "";
+  columnFilters.final.selected = normalizedConfig.final_price_color ?? "";
+  extraFields = (normalizedConfig.extra_fields ?? []).map(normalizeExtraFieldConfig);
+  rewardFields = (normalizedConfig.reward_fields ?? []).map(normalizeRewardFieldConfig);
   renderExtraFieldInputs();
   renderRewardFieldInputs();
   loadAllColumnColors();
   updateCalculateButtonState();
+  applyPriceHighlighting();
 }
 
 function normalizeExtraFieldConfig(field) {
@@ -1418,25 +1534,119 @@ function normalizeRewardFieldConfig(field) {
   };
 }
 
-function readSettingsStore() {
+function openDB() {
+  if (!window.indexedDB) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let request;
+    try {
+      request = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch {
+      resolve(null);
+      return;
+    }
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(SETTINGS_STORE_NAME)) {
+        db.createObjectStore(SETTINGS_STORE_NAME, { keyPath: "fileKey" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => resolve(null);
+    request.onblocked = () => resolve(null);
+  });
+}
+
+async function withSettingsStore(mode, callback) {
+  const db = await openDB();
+  if (!db) return null;
+  return new Promise((resolve, reject) => {
+    let transaction;
+    try {
+      transaction = db.transaction(SETTINGS_STORE_NAME, mode);
+    } catch (error) {
+      db.close();
+      reject(error);
+      return;
+    }
+    const store = transaction.objectStore(SETTINGS_STORE_NAME);
+    let settled = false;
+    transaction.oncomplete = () => {
+      db.close();
+      if (!settled) resolve(undefined);
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error);
+    };
+    transaction.onabort = () => {
+      db.close();
+      reject(transaction.error);
+    };
+    try {
+      callback(store, (value) => {
+        settled = true;
+        resolve(value);
+      });
+    } catch (error) {
+      transaction.abort();
+      reject(error);
+    }
+  });
+}
+
+async function saveFileSettings(fileKey, data) {
+  if (!fileKey || !data) return;
   try {
-    return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? "{}");
+    const saved = await withSettingsStore("readwrite", (store) => {
+      store.put({ ...data, fileKey });
+    });
+    if (saved === null) fallbackSettingsStore.set(fileKey, { ...data, fileKey });
   } catch {
-    return {};
+    fallbackSettingsStore.set(fileKey, { ...data, fileKey });
   }
 }
 
-function cleanupStoredSettings() {
-  const store = readSettingsStore();
-  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  let changed = false;
-  Object.entries(store).forEach(([fileName, config]) => {
-    if (!config?.saved_at || config.saved_at < cutoff) {
-      delete store[fileName];
-      changed = true;
-    }
-  });
-  if (changed) localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(store));
+async function loadFileSettings(fileKey) {
+  if (!fileKey) return null;
+  try {
+    const result = await withSettingsStore("readonly", (store, done) => {
+      const request = store.get(fileKey);
+      request.onsuccess = () => done(request.result ?? null);
+      request.onerror = () => done(null);
+    });
+    return result ?? fallbackSettingsStore.get(fileKey) ?? null;
+  } catch {
+    return fallbackSettingsStore.get(fileKey) ?? null;
+  }
+}
+
+async function deleteFileSettings(fileKey) {
+  if (!fileKey) return;
+  fallbackSettingsStore.delete(fileKey);
+  try {
+    await withSettingsStore("readwrite", (store) => {
+      store.delete(fileKey);
+    });
+  } catch {
+    // Keep the app running even when IndexedDB is unavailable.
+  }
+}
+
+async function cleanupStoredSettings() {
+  const cutoff = Date.now() - SETTINGS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  try {
+    await withSettingsStore("readwrite", (store) => {
+      const request = store.openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        if (!cursor.value?.savedAt || cursor.value.savedAt < cutoff) cursor.delete();
+        cursor.continue();
+      };
+    });
+  } catch {
+    // Cleanup failures should not affect calculator behavior.
+  }
 }
 
 function columnValue(index) {
@@ -1557,12 +1767,14 @@ function renderRewardFieldInputs() {
       input.addEventListener("input", () => {
         updateRewardFieldFromCard(field, card);
         persistDynamicColumnInput(input);
+        queueSaveCurrentSettings();
       });
     });
     nameSelect.addEventListener("change", () => {
       updateRewardFieldFromCard(field, card);
       updateRewardNameVisibility(card, field.name_choice);
       activateDynamicFieldColumnTarget(card);
+      queueSaveCurrentSettings();
     });
     const customToggle = card.querySelector(".extra-custom-select-toggle");
     const customMenu = card.querySelector(".extra-custom-select-menu");
@@ -1579,11 +1791,13 @@ function renderRewardFieldInputs() {
         syncCustomSelect(nameSelect);
         activateDynamicFieldColumnTarget(card);
         customMenu.classList.add("hidden");
+        queueSaveCurrentSettings();
       });
     });
     card.querySelector(".extra-field-remove").addEventListener("click", () => {
       rewardFields = rewardFields.filter((item) => item.id !== field.id);
       renderRewardFieldInputs();
+      queueSaveCurrentSettings();
     });
     updateRewardNameVisibility(card, field.name_choice);
   });
@@ -1729,28 +1943,38 @@ function hideResults() {
 
 function showConfirmDialog(message) {
   confirmMessage.textContent = message;
-  confirmDialog.classList.remove("hidden");
+  showDialog(confirmDialog);
 }
 
 function hideConfirmDialog() {
-  confirmDialog.classList.add("hidden");
+  hideDialog(confirmDialog);
 }
 
 function showMessageDialog(message) {
   messageText.textContent = message;
-  messageDialog.classList.remove("hidden");
+  showDialog(messageDialog);
 }
 
 function hideMessageDialog() {
-  messageDialog.classList.add("hidden");
+  hideDialog(messageDialog);
 }
 
 function showRestoreDialog() {
-  restoreDialog.classList.remove("hidden");
+  showDialog(restoreDialog);
 }
 
 function hideRestoreDialog() {
-  restoreDialog.classList.add("hidden");
+  hideDialog(restoreDialog);
+}
+
+function showDialog(dialog) {
+  dialog.hidden = false;
+  dialog.classList.remove("hidden");
+}
+
+function hideDialog(dialog) {
+  dialog.hidden = true;
+  dialog.classList.add("hidden");
 }
 
 function setCalculating(isCalculating) {

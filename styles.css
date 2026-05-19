@@ -486,13 +486,21 @@ h1 {
 
 .extra-field-card {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(140px, 0.8fr) auto;
   gap: 10px;
   align-items: end;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.58);
+}
+
+.extra-field-card[data-mode="column_minus"] {
+  grid-template-columns: minmax(150px, 0.9fr) minmax(150px, 0.9fr) minmax(130px, 0.75fr) minmax(130px, 0.75fr) auto;
+}
+
+.extra-field-card label {
+  min-width: 0;
 }
 
 .reward-field-card {
@@ -590,7 +598,20 @@ h1 {
 }
 
 .extra-field-remove {
+  min-width: 58px;
+  height: 44px;
   min-height: 44px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.extra-field-card .extra-field-remove,
+.reward-field-card .extra-field-remove {
+  width: 58px;
 }
 
 .extra-custom-name-wrap {
@@ -1508,3 +1529,4 @@ th {
     grid-template-columns: 1fr;
   }
 }
+
