@@ -72,6 +72,7 @@ const rewardColumnsAnchor = document.querySelector("#rewardColumnsAnchor");
 
 const currencyFormatter = new Intl.NumberFormat("ko-KR");
 let uploadedFile = null;
+let excelWorkbook = null;
 let workbookPreview = null;
 let activePick = "product";
 let pendingPayload = null;
@@ -515,16 +516,10 @@ function updateColorTrigger(key) {
 }
 
 async function postFile(path, extraFields = {}) {
-  if (window.location.protocol === "file:") {
-    throw new Error("파일로 직접 연 상태에서는 엑셀 분석을 할 수 없습니다. start.bat을 실행해 접속해주세요.");
-  }
-  const formData = new FormData();
-  formData.append("file", uploadedFile);
-  Object.entries(extraFields).forEach(([key, value]) => formData.append(key, value));
-  const response = await fetch(path, { method: "POST", body: formData });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || "처리 중 문제가 생겼습니다.");
-  return payload;
+  if (path === "/api/inspect") return inspectExcelInBrowser();
+  if (path === "/api/column-colors") return columnColorsInBrowser(extraFields);
+  if (path === "/api/calculate") return calculateExcelInBrowser(extraFields);
+  throw new Error("지원하지 않는 처리 요청입니다.");
 }
 
 function renderResults(payload) {
@@ -650,6 +645,216 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value);
+}
+
+async function getExcelWorkbook() {
+  if (excelWorkbook) return excelWorkbook;
+  if (!window.ExcelJS) {
+    throw new Error("엑셀 처리 모듈을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 열어주세요.");
+  }
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await uploadedFile.arrayBuffer());
+  excelWorkbook = workbook;
+  return workbook;
+}
+
+async function inspectExcelInBrowser() {
+  excelWorkbook = null;
+  const workbook = await getExcelWorkbook();
+  const sheets = workbook.worksheets.map((worksheet) => {
+    const visibleRows = [];
+    for (let rowNumber = 1; rowNumber <= worksheet.rowCount && visibleRows.length < 40; rowNumber += 1) {
+      if (!isHiddenRow(worksheet, rowNumber)) visibleRows.push(rowNumber);
+    }
+    const visibleCols = [];
+    const maxColumn = Math.max(worksheet.columnCount, 1);
+    for (let colNumber = 1; colNumber <= maxColumn && visibleCols.length < 24; colNumber += 1) {
+      if (!isHiddenColumn(worksheet, colNumber - 1)) visibleCols.push(colNumber - 1);
+    }
+    const preview = visibleRows.map((rowNumber) =>
+      visibleCols.map((colIndex) => cleanExcelCellValue(worksheet.getRow(rowNumber).getCell(colIndex + 1).value)),
+    );
+    const [suggestedStart, suggestedEnd] = suggestBrowserRowBounds(worksheet);
+    return {
+      name: worksheet.name,
+      preview,
+      preview_rows: visibleRows,
+      preview_cols: visibleCols,
+      total_rows: worksheet.rowCount,
+      total_cols: worksheet.columnCount,
+      suggested_start_row: suggestedStart,
+      suggested_end_row: suggestedEnd,
+    };
+  });
+  return { sheets };
+}
+
+function getWorksheetByName(name) {
+  const worksheet = excelWorkbook?.getWorksheet(name);
+  if (!worksheet) throw new Error("선택한 시트를 찾지 못했습니다.");
+  return worksheet;
+}
+
+function isHiddenRow(worksheet, rowNumber) {
+  const row = worksheet.getRow(rowNumber);
+  return Boolean(row.hidden || row.height === 0);
+}
+
+function isHiddenColumn(worksheet, columnIndex) {
+  const column = worksheet.getColumn(columnIndex + 1);
+  return Boolean(column.hidden || column.width === 0);
+}
+
+function ensureVisibleBrowserColumn(worksheet, columnIndex, label) {
+  if (isHiddenColumn(worksheet, columnIndex)) {
+    throw new Error(`${label}로 선택한 열이 엑셀에서 숨김 처리되어 있습니다. 숨김 해제 후 다시 선택해주세요.`);
+  }
+}
+
+function cleanExcelCellValue(value) {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "object") {
+    if ("result" in value) return cleanExcelCellValue(value.result);
+    if ("text" in value) return value.text ?? "";
+    if ("richText" in value) return value.richText.map((part) => part.text).join("");
+    if ("hyperlink" in value && "text" in value) return value.text;
+  }
+  return value;
+}
+
+function parseBrowserNumber(value) {
+  const cleanedValue = cleanExcelCellValue(value);
+  if (typeof cleanedValue === "number") return cleanedValue;
+  const cleaned = String(cleanedValue).replace(/[^\d.-]/g, "");
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function suggestBrowserRowBounds(worksheet) {
+  let first = null;
+  let last = null;
+  for (let rowNumber = 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    if (isHiddenRow(worksheet, rowNumber)) continue;
+    let count = 0;
+    const row = worksheet.getRow(rowNumber);
+    for (let colNumber = 1; colNumber <= worksheet.columnCount; colNumber += 1) {
+      if (isHiddenColumn(worksheet, colNumber - 1)) continue;
+      if (cleanExcelCellValue(row.getCell(colNumber).value) !== "") count += 1;
+    }
+    if (count >= 2) {
+      if (first === null) first = rowNumber;
+      last = rowNumber;
+    }
+  }
+  return [first ?? 1, last ?? Math.max(1, worksheet.rowCount)];
+}
+
+function normalizeBrowserFillColor(cell) {
+  const color = cell.fill?.fgColor;
+  if (!color) return null;
+  if (color.argb) return color.argb.slice(-6).toUpperCase();
+  if (color.rgb) return color.rgb.slice(-6).toUpperCase();
+  return null;
+}
+
+async function columnColorsInBrowser(fields) {
+  await getExcelWorkbook();
+  const worksheet = getWorksheetByName(fields.sheet_name);
+  const columnIndex = Number(fields.column_index);
+  if (isHiddenColumn(worksheet, columnIndex)) return { colors: [] };
+  const counts = new Map();
+  const start = Math.max(Number(fields.start_row || 1), 1);
+  const end = Math.min(Number(fields.end_row || worksheet.rowCount), worksheet.rowCount);
+  for (let rowNumber = start; rowNumber <= end; rowNumber += 1) {
+    if (isHiddenRow(worksheet, rowNumber)) continue;
+    const cell = worksheet.getRow(rowNumber).getCell(columnIndex + 1);
+    if (cleanExcelCellValue(cell.value) === "") continue;
+    const color = normalizeBrowserFillColor(cell);
+    if (color) counts.set(color, (counts.get(color) ?? 0) + 1);
+  }
+  return {
+    colors: [...counts.entries()].map(([value, count]) => ({ value, label: `#${value}`, count })),
+  };
+}
+
+async function calculateExcelInBrowser(fields) {
+  await getExcelWorkbook();
+  const worksheet = getWorksheetByName(fields.sheet_name);
+  const productCol = Number(fields.product_col);
+  const originalCol = Number(fields.original_col);
+  const finalCol = Number(fields.final_price_col);
+  const categoryCol = fields.category_col === "" ? null : Number(fields.category_col);
+  const extraFieldList = JSON.parse(fields.extra_fields || "[]");
+  const rewardFieldList = JSON.parse(fields.reward_fields || "[]");
+
+  ensureVisibleBrowserColumn(worksheet, productCol, "제품명");
+  ensureVisibleBrowserColumn(worksheet, originalCol, "기존금액");
+  ensureVisibleBrowserColumn(worksheet, finalCol, "최종가");
+  if (categoryCol !== null) ensureVisibleBrowserColumn(worksheet, categoryCol, "카테고리");
+  extraFieldList.forEach((field) => {
+    ["source_col", "operand_col", "left_col", "right_col"].forEach((key) => {
+      if (Number.isInteger(field[key])) ensureVisibleBrowserColumn(worksheet, field[key], "추가 항목");
+    });
+  });
+  rewardFieldList.forEach((field) => {
+    if (Number.isInteger(field.source_col)) ensureVisibleBrowserColumn(worksheet, field.source_col, "적립금액");
+  });
+
+  const rows = [];
+  const start = Math.max(Number(fields.start_row || 1), 1);
+  const end = Math.min(Number(fields.end_row || worksheet.rowCount), worksheet.rowCount);
+  for (let rowNumber = start; rowNumber <= end; rowNumber += 1) {
+    if (isHiddenRow(worksheet, rowNumber)) continue;
+    const row = worksheet.getRow(rowNumber);
+    if (fields.product_color && normalizeBrowserFillColor(row.getCell(productCol + 1)) !== fields.product_color) continue;
+    if (fields.original_color && normalizeBrowserFillColor(row.getCell(originalCol + 1)) !== fields.original_color) continue;
+    if (fields.final_price_color && normalizeBrowserFillColor(row.getCell(finalCol + 1)) !== fields.final_price_color) continue;
+
+    const originalPrice = parseBrowserNumber(row.getCell(originalCol + 1).value);
+    const finalPrice = parseBrowserNumber(row.getCell(finalCol + 1).value);
+    if (!Number.isFinite(originalPrice) || !Number.isFinite(finalPrice) || originalPrice <= 0) continue;
+
+    const extraValues = {};
+    extraFieldList.forEach((field) => {
+      if (field.mode === "raw") {
+        extraValues[field.id] = cleanExcelCellValue(row.getCell(field.source_col + 1).value);
+      } else if (field.mode === "original_minus") {
+        const value = parseBrowserNumber(row.getCell(field.operand_col + 1).value);
+        extraValues[field.id] = Number.isFinite(value) ? Math.round(originalPrice - value) : "";
+      } else if (field.mode === "column_minus") {
+        const left = parseBrowserNumber(row.getCell(field.left_col + 1).value);
+        const right = parseBrowserNumber(row.getCell(field.right_col + 1).value);
+        extraValues[field.id] = Number.isFinite(left) && Number.isFinite(right) ? Math.round(left - right) : "";
+      }
+    });
+
+    const rewardValues = {};
+    let totalRewardAmount = 0;
+    rewardFieldList.forEach((field) => {
+      const value = parseBrowserNumber(row.getCell(field.source_col + 1).value);
+      const amount = Number.isFinite(value) ? Math.round(value) : 0;
+      rewardValues[field.id] = amount;
+      totalRewardAmount += amount;
+    });
+
+    const totalDiscount = Math.round(originalPrice - finalPrice);
+    rows.push({
+      row_id: rowNumber,
+      product_name: String(cleanExcelCellValue(row.getCell(productCol + 1).value)),
+      category_name: categoryCol !== null ? String(cleanExcelCellValue(row.getCell(categoryCol + 1).value)) : "",
+      original_price: Math.round(originalPrice),
+      discount_amount: Math.round(finalPrice),
+      total_discount_amount: totalDiscount,
+      discount_rate: Math.round((totalDiscount / originalPrice) * 1000) / 10,
+      extra_values: extraValues,
+      reward_values: rewardValues,
+      total_reward_amount: totalRewardAmount,
+      effective_price: Math.round(finalPrice - totalRewardAmount),
+    });
+  }
+  if (rows.length === 0) throw new Error("선택한 범위에서 계산 가능한 숫자 행을 찾지 못했습니다.");
+  return { rows, extra_fields: extraFieldList, reward_fields: rewardFieldList };
 }
 
 function columnLabel(index) {
