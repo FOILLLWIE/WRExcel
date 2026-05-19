@@ -1970,9 +1970,9 @@ function recalculateDerivedValues(row) {
 function calculateFinalPriceFromExtraFields(originalPrice, values, fields) {
   const orderedFields = fields ?? [];
   if (orderedFields.length === 0) return Math.round(Number(originalPrice) || 0);
-  return Math.round(orderedFields.reduce((total, field, index) => {
+  return Math.round(orderedFields.reduce((total, field) => {
     const amount = parseEditedNumber(values?.[field.id]);
-    return index === 0 ? total - amount : total + amount;
+    return total - amount;
   }, Number(originalPrice) || 0));
 }
 
