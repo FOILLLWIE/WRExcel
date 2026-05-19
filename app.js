@@ -108,6 +108,12 @@ let productColumnWidth = null;
 
 initializeCustomSelects();
 cleanupStoredSettings();
+window.addEventListener("beforeunload", () => {
+  if (uploadedFile && currentFileKey) saveCurrentSettings();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && uploadedFile && currentFileKey) saveCurrentSettings();
+});
 
 fileInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
@@ -126,7 +132,7 @@ fileInput.addEventListener("change", async (event) => {
     populateSheetSelect(workbookPreview.sheets);
     renderSheet(workbookPreview.sheets[0].name);
     mappingSection.classList.remove("hidden");
-    const savedConfig = await loadFileSettings(currentFileKey);
+    const savedConfig = await loadSettingsForUploadedFile(file);
     if (savedConfig) {
       pendingRestoreConfig = savedConfig;
       showRestoreDialog();
@@ -183,7 +189,7 @@ calculateButton.addEventListener("click", async () => {
       );
       return;
     }
-    finishRender(payload);
+    await finishRender(payload);
   } catch (error) {
     showMessageDialog(error.message);
   } finally {
@@ -191,12 +197,12 @@ calculateButton.addEventListener("click", async () => {
   }
 });
 
-confirmYesButton.addEventListener("click", () => {
+confirmYesButton.addEventListener("click", async () => {
   if (!pendingPayload) return;
   const payload = pendingPayload;
   pendingPayload = null;
   hideConfirmDialog();
-  finishRender(payload);
+  await finishRender(payload);
 });
 
 confirmNoButton.addEventListener("click", () => {
@@ -663,10 +669,10 @@ function applyRewardColumnVisibility() {
   });
 }
 
-function finishRender(payload) {
+async function finishRender(payload) {
   renderResults(payload);
-  saveCurrentSettings();
-  setStatus(`계산 완료: ${payload.rows.length}개 상품을 찾았습니다.`, "success");
+  await saveCurrentSettings();
+  setStatus(`?? ??: ${payload.rows.length}? ??? ?????.`, "success");
   resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -1603,6 +1609,42 @@ async function saveFileSettings(fileKey, data) {
     if (saved === null) fallbackSettingsStore.set(fileKey, { ...data, fileKey });
   } catch {
     fallbackSettingsStore.set(fileKey, { ...data, fileKey });
+  }
+}
+
+async function loadSettingsForUploadedFile(file) {
+  const exact = await loadFileSettings(createFileKey(file));
+  if (exact) return exact;
+  return loadLatestFileSettingsByName(file.name);
+}
+
+async function loadLatestFileSettingsByName(fileName) {
+  if (!fileName) return null;
+  try {
+    const result = await withSettingsStore("readonly", (store, done) => {
+      const request = store.openCursor();
+      let latest = null;
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          done(latest);
+          return;
+        }
+        const value = cursor.value;
+        if (value?.fileName === fileName && (!latest || (value.savedAt ?? 0) > (latest.savedAt ?? 0))) {
+          latest = value;
+        }
+        cursor.continue();
+      };
+      request.onerror = () => done(null);
+    });
+    return result ?? null;
+  } catch {
+    let latest = null;
+    fallbackSettingsStore.forEach((value) => {
+      if (value?.fileName === fileName && (!latest || (value.savedAt ?? 0) > (latest.savedAt ?? 0))) latest = value;
+    });
+    return latest;
   }
 }
 
