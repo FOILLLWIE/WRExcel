@@ -1530,3 +1530,7 @@ th {
   }
 }
 
+
+[hidden] {
+  display: none !important;
+}

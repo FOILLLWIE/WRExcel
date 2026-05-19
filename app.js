@@ -1,74 +1,78 @@
-const fileInput = document.querySelector("#excelFile");
-const fileDrop = document.querySelector(".file-drop");
-const statusCard = document.querySelector("#statusCard");
-const mappingSection = document.querySelector("#mappingSection");
-const resultSection = document.querySelector("#resultSection");
-const sheetSelect = document.querySelector("#sheetSelect");
-const previewTable = document.querySelector("#previewTable");
-const productColumn = document.querySelector("#productColumn");
-const productColorChoices = document.querySelector("#productColorChoices");
-const productColorPicker = document.querySelector("#productColorPicker");
-const productColorTrigger = document.querySelector("#productColorTrigger");
-const originalColumn = document.querySelector("#originalColumn");
-const originalColorChoices = document.querySelector("#originalColorChoices");
-const originalColorPicker = document.querySelector("#originalColorPicker");
-const originalColorTrigger = document.querySelector("#originalColorTrigger");
-const finalPriceColumn = document.querySelector("#finalPriceColumn");
-const categoryColumn = document.querySelector("#categoryColumn");
-const finalColorChoices = document.querySelector("#finalColorChoices");
-const finalColorPicker = document.querySelector("#finalColorPicker");
-const finalColorTrigger = document.querySelector("#finalColorTrigger");
-const startRow = document.querySelector("#startRow");
-const endRow = document.querySelector("#endRow");
-const currentPickLabel = document.querySelector("#currentPickLabel");
-const calculateButton = document.querySelector("#calculateButton");
-const itemCount = document.querySelector("#itemCount");
-const resultBody = document.querySelector("#resultBody");
-const editResultsButton = document.querySelector("#editResultsButton");
-const expandResultsButton = document.querySelector("#expandResultsButton");
-const productSearch = document.querySelector("#productSearch");
-const productFilterButton = document.querySelector("#productFilterButton");
-const productFilterPanel = document.querySelector("#productFilterPanel");
-const productFilterList = document.querySelector("#productFilterList");
-const addProductFilterButton = document.querySelector("#addProductFilterButton");
-const removeParenthesesText = document.querySelector("#removeParenthesesText");
-const removeBracketsText = document.querySelector("#removeBracketsText");
-const removeTrailingModelCode = document.querySelector("#removeTrailingModelCode");
-const removeAfterDelimiter = document.querySelector("#removeAfterDelimiter");
-const removeLeadingText = document.querySelector("#removeLeadingText");
-const leadingTextOptions = document.querySelector("#leadingTextOptions");
-const leadingTextValue = document.querySelector("#leadingTextValue");
-const delimiterOptions = document.querySelector("#delimiterOptions");
-const delimiterValue = document.querySelector("#delimiterValue");
-const visibleColumnsButton = document.querySelector("#visibleColumnsButton");
-const visibleColumnsPanel = document.querySelector("#visibleColumnsPanel");
-const showWonSuffix = document.querySelector("#showWonSuffix");
-const showDiscountMinus = document.querySelector("#showDiscountMinus");
-const highlightFinalPrices = document.querySelector("#highlightFinalPrices");
-const titleCaseProductName = document.querySelector("#titleCaseProductName");
-const autoLoadColorFilters = document.querySelector("#autoLoadColorFilters");
-const colorLoadOptionText = document.querySelector("#colorLoadOptionText");
-const sortField = document.querySelector("#sortField");
-const sortDirection = document.querySelector("#sortDirection");
-const emptyResultMessage = document.querySelector("#emptyResultMessage");
-const productNameHeader = document.querySelector("#productNameHeader");
-const productNameResizer = document.querySelector("#productNameResizer");
-const confirmDialog = document.querySelector("#confirmDialog");
-const confirmMessage = document.querySelector("#confirmMessage");
-const confirmYesButton = document.querySelector("#confirmYesButton");
-const confirmNoButton = document.querySelector("#confirmNoButton");
-const messageDialog = document.querySelector("#messageDialog");
-const messageText = document.querySelector("#messageText");
-const messageCloseButton = document.querySelector("#messageCloseButton");
-const restoreDialog = document.querySelector("#restoreDialog");
-const restoreYesButton = document.querySelector("#restoreYesButton");
-const restoreNoButton = document.querySelector("#restoreNoButton");
-const addExtraFieldButton = document.querySelector("#addExtraFieldButton");
-const extraFieldsList = document.querySelector("#extraFieldsList");
-const extraColumnsAnchor = document.querySelector("#extraColumnsAnchor");
-const addRewardFieldButton = document.querySelector("#addRewardFieldButton");
-const rewardFieldsList = document.querySelector("#rewardFieldsList");
-const rewardColumnsAnchor = document.querySelector("#rewardColumnsAnchor");
+const qs = (selector, root = document) => root.querySelector(selector);
+const qsa = (selector, root = document) => [...root.querySelectorAll(selector)];
+const byType = (type) => qs(`[data-type="${type}"]`);
+const columnField = (type) => qs(`.column-field[data-type="${type}"]`);
+const columnInput = (type) => qs(`[data-role="column-input"][data-type="${type}"]`);
+const optionInput = (name) => qs(`[data-role="option"][data-option="${name}"]`);
+const selectInput = (target) => qs(`[data-role="native-select"][data-target="${target}"]`);
+const actionButton = (action) => qs(`[data-role="action"][data-action="${action}"]`);
+
+const fileInput = qs('[data-role="file-input"]');
+const fileDrop = qs(".file-drop");
+const statusCard = qs('[data-role="status"]');
+const mappingSection = qs('[data-section="mapping"]');
+const resultSection = qs('[data-section="results"]');
+const sheetSelect = selectInput("sheet");
+const previewTable = qs('[data-role="preview-table"]');
+const productColumn = columnInput("product");
+const productColorChoices = qs('[data-role="color-choices"]', columnField("product"));
+const productColorPicker = qs('[data-role="color-picker"]', columnField("product"));
+const productColorTrigger = qs('[data-role="color-trigger"]', columnField("product"));
+const originalColumn = columnInput("original");
+const originalColorChoices = qs('[data-role="color-choices"]', columnField("original"));
+const originalColorPicker = qs('[data-role="color-picker"]', columnField("original"));
+const originalColorTrigger = qs('[data-role="color-trigger"]', columnField("original"));
+const finalPriceColumn = columnInput("finalPrice");
+const categoryColumn = columnInput("category");
+const finalColorChoices = qs('[data-role="color-choices"]', columnField("finalPrice"));
+const finalColorPicker = qs('[data-role="color-picker"]', columnField("finalPrice"));
+const finalColorTrigger = qs('[data-role="color-trigger"]', columnField("finalPrice"));
+const startRow = qs('[data-role="row-input"][data-type="startRow"]');
+const endRow = qs('[data-role="row-input"][data-type="endRow"]');
+const currentPickLabel = qs('[data-role="current-pick-label"]');
+const calculateButton = actionButton("calculate");
+const itemCount = qs('[data-role="item-count"]');
+const resultBody = qs('[data-role="result-body"]');
+const editResultsButton = actionButton("toggle-edit-results");
+const expandResultsButton = actionButton("toggle-expand-results");
+const productSearch = qs('[data-role="product-search"]');
+const productFilterButton = actionButton("toggle-product-filter");
+const productFilterPanel = qs('[data-role="product-filter-panel"]');
+const productFilterList = qs('[data-role="product-filter-list"]');
+const addProductFilterButton = actionButton("add-product-filter");
+const removeParenthesesText = optionInput("removeParenthesesText");
+const removeBracketsText = optionInput("removeBracketsText");
+const removeTrailingModelCode = optionInput("removeTrailingModelCode");
+const removeAfterDelimiter = optionInput("removeAfterDelimiter");
+const removeLeadingText = optionInput("removeLeadingText");
+const leadingTextOptions = qs('[data-role="option-panel"][data-option-panel="removeLeadingText"]');
+const leadingTextValue = qs('[data-role="option-value"][data-option="removeLeadingText"]');
+const delimiterOptions = qs('[data-role="option-panel"][data-option-panel="removeAfterDelimiter"]');
+const delimiterValue = qs('[data-role="option-value"][data-option="removeAfterDelimiter"]');
+const visibleColumnsButton = actionButton("toggle-visible-columns");
+const visibleColumnsPanel = qs('[data-role="visible-columns-panel"]');
+const showWonSuffix = optionInput("showWonSuffix");
+const showDiscountMinus = optionInput("showDiscountMinus");
+const highlightFinalPrices = optionInput("highlightFinalPrices");
+const titleCaseProductName = optionInput("titleCaseProductName");
+const autoLoadColorFilters = optionInput("autoLoadColorFilters");
+const colorLoadOptionText = autoLoadColorFilters?.closest("label")?.querySelector(".option-label");
+const sortField = selectInput("sortField");
+const sortDirection = selectInput("sortDirection");
+const emptyResultMessage = qs('[data-role="empty-result-message"]');
+const productNameHeader = qs('[data-column="product_name"]');
+const productNameResizer = qs('[data-role="product-name-resizer"]');
+const appDialog = qs('[data-role="dialog"]');
+const dialogTitle = qs('[data-role="dialog-title"]', appDialog);
+const dialogMessage = qs('[data-role="dialog-message"]', appDialog);
+const dialogActions = qs('[data-role="dialog-actions"]', appDialog);
+const addExtraFieldButton = actionButton("add-extra-field");
+const extraFieldsList = qs('[data-role="dynamic-fields-list"][data-type="extra"]');
+const resultHeaderRow = qs('[data-role="result-header-row"]');
+const extraColumnsAnchor = qs('[data-column="total_reward_amount"]', resultHeaderRow);
+const addRewardFieldButton = actionButton("add-reward-field");
+const rewardFieldsList = qs('[data-role="dynamic-fields-list"][data-type="reward"]');
+const rewardColumnsAnchor = qs('[data-column="total_reward_amount"]', resultHeaderRow);
 
 const currencyFormatter = new Intl.NumberFormat("ko-KR");
 let uploadedFile = null;
@@ -131,7 +135,7 @@ fileInput.addEventListener("change", async (event) => {
     workbookPreview = await postFile("/api/inspect");
     populateSheetSelect(workbookPreview.sheets);
     renderSheet(workbookPreview.sheets[0].name);
-    mappingSection.classList.remove("hidden");
+    setElementHidden(mappingSection, false);
     const savedConfig = await loadSettingsForUploadedFile(file);
     if (savedConfig) {
       pendingRestoreConfig = savedConfig;
@@ -197,41 +201,13 @@ calculateButton.addEventListener("click", async () => {
   }
 });
 
-confirmYesButton.addEventListener("click", async () => {
-  if (!pendingPayload) return;
-  const payload = pendingPayload;
-  pendingPayload = null;
-  hideConfirmDialog();
-  await finishRender(payload);
-});
-
-confirmNoButton.addEventListener("click", () => {
-  pendingPayload = null;
-  hideConfirmDialog();
-  hideResults();
-  setStatus("계산을 취소했습니다. 선택한 열을 다시 확인해주세요.", "error");
-});
-
-messageCloseButton.addEventListener("click", hideMessageDialog);
-restoreYesButton.addEventListener("click", () => {
-  if (pendingRestoreConfig) {
-    restoreSettings(pendingRestoreConfig);
-    queueSaveCurrentSettings();
-  }
-  pendingRestoreConfig = null;
-  hideRestoreDialog();
-});
-restoreNoButton.addEventListener("click", () => {
-  pendingRestoreConfig = null;
-  hideRestoreDialog();
-});
 
 productSearch.addEventListener("input", renderFilteredResults);
 sortField.addEventListener("change", renderFilteredResults);
 sortDirection.addEventListener("change", renderFilteredResults);
 productFilterButton.addEventListener("click", (event) => {
   event.stopPropagation();
-  productFilterPanel.classList.toggle("hidden");
+  setElementHidden(productFilterPanel, !productFilterPanel.hidden ? true : false);
 });
 productFilterPanel.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -244,26 +220,26 @@ removeParenthesesText.addEventListener("change", renderFilteredResults);
 removeBracketsText.addEventListener("change", renderFilteredResults);
 removeTrailingModelCode.addEventListener("change", renderFilteredResults);
 removeAfterDelimiter.addEventListener("change", () => {
-  delimiterOptions.classList.toggle("hidden", !removeAfterDelimiter.checked);
+  setElementHidden(delimiterOptions, !removeAfterDelimiter.checked);
   renderFilteredResults();
 });
 removeLeadingText.addEventListener("change", () => {
-  leadingTextOptions.classList.toggle("hidden", !removeLeadingText.checked);
+  setElementHidden(leadingTextOptions, !removeLeadingText.checked);
   renderFilteredResults();
 });
 leadingTextValue.addEventListener("input", renderFilteredResults);
 delimiterValue.addEventListener("input", renderFilteredResults);
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".search-with-filter")) {
-    productFilterPanel.classList.add("hidden");
+    setElementHidden(productFilterPanel, true);
   }
   if (!event.target.closest(".visible-columns-wrap")) {
-    visibleColumnsPanel.classList.add("hidden");
+    setElementHidden(visibleColumnsPanel, true);
   }
 });
 visibleColumnsButton.addEventListener("click", (event) => {
   event.stopPropagation();
-  visibleColumnsPanel.classList.toggle("hidden");
+  setElementHidden(visibleColumnsPanel, !visibleColumnsPanel.hidden ? true : false);
 });
 visibleColumnsPanel.querySelectorAll("[data-visible-column]").forEach((checkbox) => {
   checkbox.addEventListener("change", () => {
@@ -306,7 +282,7 @@ expandResultsButton.addEventListener("click", () => {
 Object.values(columnFilters).forEach((filter) => {
   filter.trigger.addEventListener("click", () => {
     closeAllColorMenus(filter.choices);
-    filter.choices.classList.toggle("hidden");
+    setElementHidden(filter.choices, !filter.choices.hidden ? true : false);
   });
 });
 document.addEventListener("click", (event) => {
@@ -510,7 +486,7 @@ async function loadColumnColors(key) {
       `;
       filter.choices.appendChild(button);
     });
-    filter.picker.classList.toggle("hidden", usableColors.length === 0);
+    setElementHidden(filter.picker, usableColors.length === 0);
     bindColorChoiceEvents(key);
     updateColorTrigger(key);
   } catch {
@@ -521,15 +497,15 @@ async function loadColumnColors(key) {
 function resetColumnColors(key) {
   const filter = columnFilters[key];
   filter.selected = "";
-  filter.picker.classList.add("hidden");
-  filter.choices.classList.add("hidden");
+  setElementHidden(filter.picker, true);
+  setElementHidden(filter.choices, true);
   filter.choices.innerHTML = `<button class="color-choice selected" type="button" data-color="">전체</button>`;
   updateColorTrigger(key);
 }
 
 function closeAllColorMenus(exceptChoices = null) {
   Object.values(columnFilters).forEach((filter) => {
-    if (filter.choices !== exceptChoices) filter.choices.classList.add("hidden");
+    if (filter.choices !== exceptChoices) setElementHidden(filter.choices, true);
   });
 }
 
@@ -542,7 +518,7 @@ function bindColorChoiceEvents(key) {
         node.classList.toggle("selected", node === button);
       });
       updateColorTrigger(key);
-      filter.choices.classList.add("hidden");
+      setElementHidden(filter.choices, true);
       queueSaveCurrentSettings();
     });
   });
@@ -583,7 +559,7 @@ function renderResults(payload) {
   syncCustomSelect(sortField);
   syncCustomSelect(sortDirection);
   renderFilteredResults();
-  resultSection.classList.remove("hidden");
+  setElementHidden(resultSection, false);
 }
 
 function renderFilteredResults() {
@@ -651,7 +627,7 @@ function renderFilteredResults() {
   applyRewardColumnVisibility();
   applyVisibleColumns();
   applyPriceHighlighting();
-  emptyResultMessage.classList.toggle("hidden", rows.length > 0);
+  setElementHidden(emptyResultMessage, rows.length > 0);
 }
 
 function applyRewardColumnVisibility() {
@@ -662,7 +638,7 @@ function applyRewardColumnVisibility() {
     });
   });
   visibleColumnsPanel.querySelectorAll('[data-visible-column="total_reward_amount"], [data-visible-column="effective_price"]').forEach((checkbox) => {
-    checkbox.closest("label").classList.toggle("hidden", !shouldShowRewards);
+    setElementHidden(checkbox.closest("label"), !shouldShowRewards);
   });
   document.querySelectorAll('[data-column="total_reward_amount"]').forEach((node) => {
     node.classList.toggle("reward-group-start", rewardFields.length === 0);
@@ -2003,45 +1979,129 @@ function renderProductFilterInputs() {
       productNameFilters.splice(index, 1);
       renderProductFilterInputs();
       renderFilteredResults();
-      productFilterPanel.classList.remove("hidden");
+      setElementHidden(productFilterPanel, false);
     });
     productFilterList.appendChild(row);
   });
 }
 
 function setStatus(message, type) {
+  statusCard.hidden = false;
   statusCard.textContent = message;
   statusCard.className = `panel status-panel ${type}`;
 }
 
 function hideResults() {
-  resultSection.classList.add("hidden");
+  setElementHidden(resultSection, true);
 }
 
-function showConfirmDialog(message) {
-  confirmMessage.textContent = message;
-  showDialog(confirmDialog);
+function showConfirmDialog(message, onConfirm = null, onCancel = null) {
+  showAppDialog({
+    type: "confirm",
+    title: "\uD655\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4",
+    message,
+    actions: [
+      {
+        label: "아니오",
+        className: "ghost-button",
+        handler: () => {
+          if (onCancel) onCancel();
+          else {
+            pendingPayload = null;
+            hideResults();
+            setStatus("\uACC4\uC0B0\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4. \uC120\uD0DD\uD55C \uC5F4\uC744 \uB2E4\uC2DC \uD655\uC778\uD574\uC8FC\uC138\uC694.", "error");
+          }
+          hideConfirmDialog();
+        },
+      },
+      {
+        label: "예",
+        className: "primary-button",
+        handler: async () => {
+          if (onConfirm) await onConfirm();
+          else if (pendingPayload) {
+            const payload = pendingPayload;
+            pendingPayload = null;
+            await finishRender(payload);
+          }
+          hideConfirmDialog();
+        },
+      },
+    ],
+  });
 }
 
 function hideConfirmDialog() {
-  hideDialog(confirmDialog);
+  hideDialog(appDialog);
 }
 
 function showMessageDialog(message) {
-  messageText.textContent = message;
-  showDialog(messageDialog);
+  showAppDialog({
+    type: "message",
+    title: "\uC548\uB0B4",
+    message,
+    actions: [
+      {
+        label: "확인",
+        className: "primary-button",
+        handler: hideMessageDialog,
+      },
+    ],
+  });
 }
 
 function hideMessageDialog() {
-  hideDialog(messageDialog);
+  hideDialog(appDialog);
 }
 
 function showRestoreDialog() {
-  showDialog(restoreDialog);
+  showAppDialog({
+    type: "restore",
+    title: "\uC800\uC7A5\uB41C \uB0B4\uC5ED\uC774 \uC788\uC2B5\uB2C8\uB2E4",
+    message: "\uC774 \uD30C\uC77C\uC5D0 \uB300\uD574 \uC774\uC804\uC5D0 \uC800\uC7A5\uD55C \uC124\uC815\uC774 \uC788\uC2B5\uB2C8\uB2E4. \uBD88\uB7EC\uC624\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?",
+    actions: [
+      {
+        label: "아니오",
+        className: "ghost-button",
+        handler: () => {
+          pendingRestoreConfig = null;
+          hideRestoreDialog();
+        },
+      },
+      {
+        label: "예",
+        className: "primary-button",
+        handler: () => {
+          if (pendingRestoreConfig) {
+            restoreSettings(pendingRestoreConfig);
+            queueSaveCurrentSettings();
+          }
+          pendingRestoreConfig = null;
+          hideRestoreDialog();
+        },
+      },
+    ],
+  });
 }
 
 function hideRestoreDialog() {
-  hideDialog(restoreDialog);
+  hideDialog(appDialog);
+}
+
+function showAppDialog({ type = "message", title = "", message = "", actions = [] }) {
+  appDialog.dataset.dialogType = type;
+  dialogTitle.textContent = title;
+  dialogMessage.textContent = message;
+  dialogActions.innerHTML = "";
+  actions.forEach((action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = action.className;
+    button.textContent = action.label;
+    button.addEventListener("click", action.handler);
+    dialogActions.appendChild(button);
+  });
+  showDialog(appDialog);
 }
 
 function showDialog(dialog) {
@@ -2069,24 +2129,37 @@ function updateCalculateButtonState() {
 }
 
 function initializeCustomSelects() {
-  document.querySelectorAll(".custom-select").forEach((wrapper) => {
-    const select = document.querySelector(`#${wrapper.dataset.selectTarget}`);
-    mountCustomSelect(wrapper, select);
+  document.querySelectorAll('[data-role="select"], .custom-select').forEach((wrapper) => {
+    const select = findNativeSelectForWrapper(wrapper);
+    if (select) mountCustomSelect(wrapper, select);
   });
 
   document.addEventListener("click", (event) => {
-    if (!event.target.closest(".custom-select")) closeAllCustomSelects();
+    if (!event.target.closest('[data-role="select"], .custom-select')) closeAllCustomSelects();
     if (!event.target.closest(".extra-custom-name-wrap")) {
-      document.querySelectorAll(".extra-custom-select-menu").forEach((menu) => menu.classList.add("hidden"));
+      document.querySelectorAll(".extra-custom-select-menu").forEach((menu) => setElementHidden(menu, true));
     }
   });
 }
 
+function findNativeSelectForWrapper(wrapper) {
+  const target = wrapper.dataset.target || wrapper.dataset.selectTarget;
+  return wrapper.parentElement?.querySelector('[data-role="native-select"]')
+    || (target ? document.querySelector(`[data-role="native-select"][data-target="${target}"]`) : null)
+    || (target ? document.querySelector(`#${target}`) : null);
+}
+
+function setElementHidden(element, hidden) {
+  if (!element) return;
+  element.hidden = hidden;
+  element.classList.toggle("hidden", hidden);
+}
+
 function closeAllCustomSelects(exceptWrapper = null) {
-  document.querySelectorAll(".custom-select").forEach((wrapper) => {
+  document.querySelectorAll('[data-role="select"], .custom-select').forEach((wrapper) => {
     if (wrapper === exceptWrapper) return;
     wrapper.classList.remove("open");
-    wrapper.querySelector(".custom-select-menu").classList.add("hidden");
+    setElementHidden(wrapper.querySelector('[data-role="select-menu"], .custom-select-menu'), true);
   });
 }
 
@@ -2096,22 +2169,27 @@ function mountCustomSelect(wrapper, select) {
     return;
   }
   wrapper.dataset.mounted = "true";
-  const trigger = wrapper.querySelector(".custom-select-trigger");
+  const trigger = wrapper.querySelector('[data-role="select-trigger"], .custom-select-trigger');
+  const menu = wrapper.querySelector('[data-role="select-menu"], .custom-select-menu');
   trigger.addEventListener("click", (event) => {
     event.stopPropagation();
     closeAllCustomSelects(wrapper);
-    wrapper.classList.toggle("open");
-    wrapper.querySelector(".custom-select-menu").classList.toggle("hidden");
+    const nextOpen = !wrapper.classList.contains("open");
+    wrapper.classList.toggle("open", nextOpen);
+    setElementHidden(menu, !nextOpen);
   });
   select.addEventListener("change", () => syncCustomSelect(select));
   syncCustomSelect(select);
 }
 
 function syncCustomSelect(select) {
-  const wrapper = document.querySelector(`.custom-select[data-select-target="${select.id}"]`);
+  const target = select.dataset.target || select.id;
+  const wrapper = target
+    ? document.querySelector(`[data-role="select"][data-target="${target}"], .custom-select[data-select-target="${target}"]`)
+    : select.parentElement?.querySelector('[data-role="select"], .custom-select');
   if (!wrapper) return;
-  const trigger = wrapper.querySelector(".custom-select-trigger");
-  const menu = wrapper.querySelector(".custom-select-menu");
+  const trigger = wrapper.querySelector('[data-role="select-trigger"], .custom-select-trigger');
+  const menu = wrapper.querySelector('[data-role="select-menu"], .custom-select-menu');
   const selectedOption = select.options[select.selectedIndex];
 
   trigger.textContent = selectedOption?.textContent ?? "";
@@ -2126,12 +2204,12 @@ function syncCustomSelect(select) {
       select.value = option.value;
       select.dispatchEvent(new Event("change", { bubbles: true }));
       wrapper.classList.remove("open");
-      menu.classList.add("hidden");
+      setElementHidden(menu, true);
     });
     menu.appendChild(button);
   });
 
-  if (select.id === "sheetSelect") {
+  if (target === "sheet" || select.id === "sheetSelect") {
     requestAnimationFrame(() => {
       menu.classList.toggle("sheet-scrollable", menu.scrollWidth > menu.clientWidth);
     });
