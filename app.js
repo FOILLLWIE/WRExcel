@@ -88,6 +88,7 @@ let pendingRestoreConfig = null;
 const SETTINGS_STORAGE_KEY = "discount-calculator-settings-v1";
 const extraFieldNameSuggestions = ["선택쿠폰", "중복쿠폰", "카드할인"];
 const rewardFieldNameSuggestions = ["\uC2A4\uB9C8\uC77C\uCE74\uB4DC", "\uBA38\uB2C8\uCDA9\uC804", "\uAF2D\uBA64\uBC841", "\uAF2D\uBA64\uBC842"];
+const worksheetMergeRangeCache = new WeakMap();
 const columnFilters = {
   product: { input: productColumn, picker: productColorPicker, trigger: productColorTrigger, choices: productColorChoices, selected: "" },
   original: { input: originalColumn, picker: originalColorPicker, trigger: originalColorTrigger, choices: originalColorChoices, selected: "" },
@@ -320,6 +321,7 @@ function renderSheet(sheetName) {
   previewTable.appendChild(header);
 
   const body = document.createElement("tbody");
+  const mergeMaps = getPreviewMergeMaps(sheet);
   sheet.preview.forEach((row, visibleRowIndex) => {
     const rowNumber = sheet.preview_rows?.[visibleRowIndex] ?? visibleRowIndex + 1;
     const tr = document.createElement("tr");
@@ -328,10 +330,16 @@ function renderSheet(sheetName) {
     tr.appendChild(rowHeader);
     row.forEach((cell, visibleColIndex) => {
       const colIndex = sheet.preview_cols?.[visibleColIndex] ?? visibleColIndex;
+      const mergeKey = `${rowNumber}:${colIndex}`;
+      if (mergeMaps.skip.has(mergeKey)) return;
+      const mergeCell = mergeMaps.render.get(mergeKey);
       const td = document.createElement("td");
-      td.textContent = cell ?? "";
-      td.dataset.row = String(rowNumber);
-      td.dataset.col = String(colIndex);
+      td.textContent = mergeCell?.value ?? cell ?? "";
+      td.dataset.row = String(mergeCell?.source_row ?? rowNumber);
+      td.dataset.col = String(mergeCell?.source_col ?? colIndex);
+      if (mergeCell?.rowspan > 1) td.rowSpan = mergeCell.rowspan;
+      if (mergeCell?.colspan > 1) td.colSpan = mergeCell.colspan;
+      if (mergeCell) td.classList.add("merged-cell");
       td.addEventListener("click", () => selectCell(td));
       tr.appendChild(td);
     });
@@ -354,9 +362,11 @@ function selectCell(cell) {
           ? finalPriceColumn
           : categoryColumn;
 
+  if (!target) return;
   target.value = `${columnLabel(colIndex)}열`;
   target.dataset.index = String(colIndex);
   target.dispatchEvent(new Event("input", { bubbles: true }));
+  if (activePick === "extra") persistDynamicColumnInput(target, colIndex);
   if (activePick === "product") {
     startRow.value = rowNumber;
   }
@@ -431,7 +441,7 @@ async function loadAllColumnColors() {
 
 function setColorLoading(isLoading) {
   if (!colorLoadOptionText) return;
-  colorLoadOptionText.textContent = isLoading ? "불러오는 중..." : "열 선택 시 색상값 불러오기";
+  colorLoadOptionText.textContent = isLoading ? "불러오는 중..." : "열 색상값 불러오기";
 }
 
 async function loadColumnColors(key) {
@@ -672,14 +682,16 @@ async function inspectExcelInBrowser() {
       if (!isHiddenColumn(worksheet, colNumber - 1)) visibleCols.push(colNumber - 1);
     }
     const preview = visibleRows.map((rowNumber) =>
-      visibleCols.map((colIndex) => cleanExcelCellValue(worksheet.getRow(rowNumber).getCell(colIndex + 1).value)),
+      visibleCols.map((colIndex) => cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, colIndex).value)),
     );
+    const previewMerges = getPreviewMerges(worksheet, visibleRows, visibleCols);
     const [suggestedStart, suggestedEnd] = suggestBrowserRowBounds(worksheet);
     return {
       name: worksheet.name,
       preview,
       preview_rows: visibleRows,
       preview_cols: visibleCols,
+      preview_merges: previewMerges,
       total_rows: worksheet.rowCount,
       total_cols: worksheet.columnCount,
       suggested_start_row: suggestedStart,
@@ -705,6 +717,99 @@ function isHiddenColumn(worksheet, columnIndex) {
   return Boolean(column.hidden || column.width === 0);
 }
 
+function getWorksheetMergeRanges(worksheet) {
+  if (worksheetMergeRangeCache.has(worksheet)) return worksheetMergeRangeCache.get(worksheet);
+  const rawMerges = [];
+  if (worksheet?._merges) rawMerges.push(...Object.values(worksheet._merges));
+  if (Array.isArray(worksheet?.model?.merges)) rawMerges.push(...worksheet.model.merges);
+  const seen = new Set();
+  const ranges = rawMerges
+    .map(parseMergeRange)
+    .filter(Boolean)
+    .filter((range) => {
+      const key = `${range.top}:${range.left}:${range.bottom}:${range.right}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return range.bottom > range.top || range.right > range.left;
+    });
+  worksheetMergeRangeCache.set(worksheet, ranges);
+  return ranges;
+}
+
+function parseMergeRange(merge) {
+  if (!merge) return null;
+  if (merge.model) return parseMergeRange(merge.model);
+  if (typeof merge === "string") {
+    const [start, end = start] = merge.split(":");
+    const startCell = parseCellAddress(start);
+    const endCell = parseCellAddress(end);
+    if (!startCell || !endCell) return null;
+    return {
+      top: Math.min(startCell.row, endCell.row),
+      left: Math.min(startCell.col, endCell.col),
+      bottom: Math.max(startCell.row, endCell.row),
+      right: Math.max(startCell.col, endCell.col),
+    };
+  }
+  const top = merge.top ?? merge.tl?.nativeRow ?? merge.tl?.row;
+  const left = merge.left ?? merge.tl?.nativeCol ?? merge.tl?.col;
+  const bottom = merge.bottom ?? merge.br?.nativeRow ?? merge.br?.row;
+  const right = merge.right ?? merge.br?.nativeCol ?? merge.br?.col;
+  if ([top, left, bottom, right].some((value) => !Number.isFinite(Number(value)))) return null;
+  return { top: Number(top), left: Number(left), bottom: Number(bottom), right: Number(right) };
+}
+
+function parseCellAddress(address) {
+  const match = String(address).match(/^\$?([A-Z]+)\$?(\d+)$/i);
+  if (!match) return null;
+  return { row: Number(match[2]), col: columnNameToNumber(match[1]) };
+}
+
+function columnNameToNumber(name) {
+  return String(name).toUpperCase().split("").reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0);
+}
+
+function getMergeRangeForCell(worksheet, rowNumber, columnIndex) {
+  const colNumber = columnIndex + 1;
+  return getWorksheetMergeRanges(worksheet).find(
+    (range) => rowNumber >= range.top && rowNumber <= range.bottom && colNumber >= range.left && colNumber <= range.right,
+  );
+}
+
+function getDisplayCell(worksheet, rowNumber, columnIndex) {
+  const range = getMergeRangeForCell(worksheet, rowNumber, columnIndex);
+  if (range) return worksheet.getRow(range.top).getCell(range.left);
+  return worksheet.getRow(rowNumber).getCell(columnIndex + 1);
+}
+
+function getPreviewMerges(worksheet, visibleRows, visibleCols) {
+  return getWorksheetMergeRanges(worksheet).map((range) => {
+    const rows = visibleRows.filter((rowNumber) => rowNumber >= range.top && rowNumber <= range.bottom);
+    const cols = visibleCols.filter((colIndex) => colIndex + 1 >= range.left && colIndex + 1 <= range.right);
+    if (rows.length === 0 || cols.length === 0) return null;
+    return {
+      render_row: rows[0],
+      render_col: cols[0],
+      source_row: range.top,
+      source_col: range.left - 1,
+      rowspan: rows.length,
+      colspan: cols.length,
+      covered: rows.flatMap((rowNumber) => cols.map((colIndex) => `${rowNumber}:${colIndex}`)).filter((key) => key !== `${rows[0]}:${cols[0]}`),
+      value: cleanExcelCellValue(worksheet.getRow(range.top).getCell(range.left).value),
+    };
+  }).filter(Boolean);
+}
+
+function getPreviewMergeMaps(sheet) {
+  const render = new Map();
+  const skip = new Set();
+  (sheet.preview_merges ?? []).forEach((merge) => {
+    render.set(`${merge.render_row}:${merge.render_col}`, merge);
+    (merge.covered ?? []).forEach((key) => skip.add(key));
+  });
+  return { render, skip };
+}
+
 function ensureVisibleBrowserColumn(worksheet, columnIndex, label) {
   if (isHiddenColumn(worksheet, columnIndex)) {
     throw new Error(`${label}로 선택한 열이 엑셀에서 숨김 처리되어 있습니다. 숨김 해제 후 다시 선택해주세요.`);
@@ -726,7 +831,10 @@ function cleanExcelCellValue(value) {
 function parseBrowserNumber(value) {
   const cleanedValue = cleanExcelCellValue(value);
   if (typeof cleanedValue === "number") return cleanedValue;
-  const cleaned = String(cleanedValue).replace(/[^\d.-]/g, "");
+  const text = String(cleanedValue).trim();
+  if (text === "") return NaN;
+  const cleaned = text.replace(/[^\d.-]/g, "");
+  if (cleaned === "" || cleaned === "-" || cleaned === "." || cleaned === "-.") return NaN;
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : NaN;
 }
@@ -751,11 +859,56 @@ function suggestBrowserRowBounds(worksheet) {
 }
 
 function normalizeBrowserFillColor(cell) {
-  const color = cell.fill?.fgColor;
-  if (!color) return null;
-  if (color.argb) return color.argb.slice(-6).toUpperCase();
-  if (color.rgb) return color.rgb.slice(-6).toUpperCase();
+  const fill = cell?.fill ?? cell?.style?.fill;
+  if (!fill || fill.type === "pattern" && fill.pattern === "none") return null;
+  const candidates = [fill.fgColor, fill.bgColor].filter(Boolean);
+  for (const candidate of candidates) {
+    const rgb = normalizeExcelColor(candidate);
+    if (rgb) return rgb;
+  }
   return null;
+}
+
+function normalizeExcelColor(color) {
+  if (!color) return null;
+  if (color.argb) {
+    const value = String(color.argb).slice(-6).toUpperCase();
+    if (value === "000000" && /^0{8}$/i.test(String(color.argb))) return null;
+    return value;
+  }
+  if (color.rgb) return String(color.rgb).slice(-6).toUpperCase();
+  if (Number.isInteger(color.indexed)) return indexedColorToRgb(color.indexed);
+  if (Number.isInteger(color.theme)) return applyTint(themeColorToRgb(color.theme), color.tint ?? 0);
+  return null;
+}
+
+function indexedColorToRgb(index) {
+  const table = {
+    0: "000000", 1: "FFFFFF", 2: "FF0000", 3: "00FF00", 4: "0000FF", 5: "FFFF00", 6: "FF00FF", 7: "00FFFF",
+    8: "000000", 9: "FFFFFF", 10: "FF0000", 11: "00FF00", 12: "0000FF", 13: "FFFF00", 14: "FF00FF", 15: "00FFFF",
+    16: "800000", 17: "008000", 18: "000080", 19: "808000", 20: "800080", 21: "008080", 22: "C0C0C0", 23: "808080",
+    24: "9999FF", 25: "993366", 26: "FFFFCC", 27: "CCFFFF", 28: "660066", 29: "FF8080", 30: "0066CC", 31: "CCCCFF",
+    32: "000080", 33: "FF00FF", 34: "FFFF00", 35: "00FFFF", 36: "800080", 37: "800000", 38: "008080", 39: "0000FF",
+    40: "00CCFF", 41: "CCFFFF", 42: "CCFFCC", 43: "FFFF99", 44: "99CCFF", 45: "FF99CC", 46: "CC99FF", 47: "FFCC99",
+    48: "3366FF", 49: "33CCCC", 50: "99CC00", 51: "FFCC00", 52: "FF9900", 53: "FF6600", 54: "666699", 55: "969696",
+    56: "003366", 57: "339966", 58: "003300", 59: "333300", 60: "993300", 61: "993366", 62: "333399", 63: "333333",
+  };
+  return table[index] ?? null;
+}
+
+function themeColorToRgb(theme) {
+  const themeColors = ["FFFFFF", "000000", "EEECE1", "1F497D", "4F81BD", "C0504D", "9BBB59", "8064A2", "4BACC6", "F79646"];
+  return themeColors[theme] ?? null;
+}
+
+function applyTint(rgb, tint) {
+  if (!rgb || !tint) return rgb;
+  const channels = [0, 2, 4].map((index) => parseInt(rgb.slice(index, index + 2), 16));
+  const tinted = channels.map((channel) => {
+    const next = tint < 0 ? channel * (1 + tint) : channel + (255 - channel) * tint;
+    return Math.max(0, Math.min(255, Math.round(next))).toString(16).padStart(2, "0").toUpperCase();
+  });
+  return tinted.join("");
 }
 
 async function columnColorsInBrowser(fields) {
@@ -768,7 +921,7 @@ async function columnColorsInBrowser(fields) {
   const end = Math.min(Number(fields.end_row || worksheet.rowCount), worksheet.rowCount);
   for (let rowNumber = start; rowNumber <= end; rowNumber += 1) {
     if (isHiddenRow(worksheet, rowNumber)) continue;
-    const cell = worksheet.getRow(rowNumber).getCell(columnIndex + 1);
+    const cell = getDisplayCell(worksheet, rowNumber, columnIndex);
     if (cleanExcelCellValue(cell.value) === "") continue;
     const color = normalizeBrowserFillColor(cell);
     if (color) counts.set(color, (counts.get(color) ?? 0) + 1);
@@ -807,24 +960,28 @@ async function calculateExcelInBrowser(fields) {
   for (let rowNumber = start; rowNumber <= end; rowNumber += 1) {
     if (isHiddenRow(worksheet, rowNumber)) continue;
     const row = worksheet.getRow(rowNumber);
-    if (fields.product_color && normalizeBrowserFillColor(row.getCell(productCol + 1)) !== fields.product_color) continue;
-    if (fields.original_color && normalizeBrowserFillColor(row.getCell(originalCol + 1)) !== fields.original_color) continue;
-    if (fields.final_price_color && normalizeBrowserFillColor(row.getCell(finalCol + 1)) !== fields.final_price_color) continue;
+    if (fields.product_color && normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, productCol)) !== fields.product_color) continue;
+    if (fields.original_color && normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, originalCol)) !== fields.original_color) continue;
+    if (fields.final_price_color && normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, finalCol)) !== fields.final_price_color) continue;
 
-    const originalPrice = parseBrowserNumber(row.getCell(originalCol + 1).value);
-    const finalPrice = parseBrowserNumber(row.getCell(finalCol + 1).value);
+    const productValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, productCol).value);
+    const originalCellValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, originalCol).value);
+    const finalCellValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, finalCol).value);
+    if (String(productValue).trim() === "" || String(originalCellValue).trim() === "" || String(finalCellValue).trim() === "") continue;
+    const originalPrice = parseBrowserNumber(originalCellValue);
+    const finalPrice = parseBrowserNumber(finalCellValue);
     if (!Number.isFinite(originalPrice) || !Number.isFinite(finalPrice) || originalPrice <= 0) continue;
 
     const extraValues = {};
     extraFieldList.forEach((field) => {
       if (field.mode === "raw") {
-        extraValues[field.id] = cleanExcelCellValue(row.getCell(field.source_col + 1).value);
+        extraValues[field.id] = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, field.source_col).value);
       } else if (field.mode === "original_minus") {
-        const value = parseBrowserNumber(row.getCell(field.operand_col + 1).value);
+        const value = parseBrowserNumber(getDisplayCell(worksheet, rowNumber, field.operand_col).value);
         extraValues[field.id] = Number.isFinite(value) ? Math.round(originalPrice - value) : "";
       } else if (field.mode === "column_minus") {
-        const left = parseBrowserNumber(row.getCell(field.left_col + 1).value);
-        const right = parseBrowserNumber(row.getCell(field.right_col + 1).value);
+        const left = parseBrowserNumber(getDisplayCell(worksheet, rowNumber, field.left_col).value);
+        const right = parseBrowserNumber(getDisplayCell(worksheet, rowNumber, field.right_col).value);
         extraValues[field.id] = Number.isFinite(left) && Number.isFinite(right) ? Math.round(left - right) : "";
       }
     });
@@ -832,7 +989,7 @@ async function calculateExcelInBrowser(fields) {
     const rewardValues = {};
     let totalRewardAmount = 0;
     rewardFieldList.forEach((field) => {
-      const value = parseBrowserNumber(row.getCell(field.source_col + 1).value);
+      const value = parseBrowserNumber(getDisplayCell(worksheet, rowNumber, field.source_col).value);
       const amount = Number.isFinite(value) ? Math.round(value) : 0;
       rewardValues[field.id] = amount;
       totalRewardAmount += amount;
@@ -841,8 +998,8 @@ async function calculateExcelInBrowser(fields) {
     const totalDiscount = Math.round(originalPrice - finalPrice);
     rows.push({
       row_id: rowNumber,
-      product_name: String(cleanExcelCellValue(row.getCell(productCol + 1).value)),
-      category_name: categoryCol !== null ? String(cleanExcelCellValue(row.getCell(categoryCol + 1).value)) : "",
+      product_name: String(productValue),
+      category_name: categoryCol !== null ? String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, categoryCol).value)) : "",
       original_price: Math.round(originalPrice),
       discount_amount: Math.round(finalPrice),
       total_discount_amount: totalDiscount,
@@ -1021,6 +1178,7 @@ function renderExtraFieldInputs() {
     const modeSelectId = `extraModeSelect_${field.id}`;
     const card = document.createElement("div");
     card.className = "extra-field-card";
+    card.dataset.fieldId = field.id;
     card.innerHTML = `
       <label>
         <span>항목명</span>
@@ -1090,11 +1248,15 @@ function renderExtraFieldInputs() {
         activeExtraFieldTarget = input;
         setActivePick("extra");
       });
-      input.addEventListener("input", () => updateExtraFieldFromCard(field, card));
+      input.addEventListener("input", () => {
+        updateExtraFieldFromCard(field, card);
+        persistDynamicColumnInput(input);
+      });
     });
     nameSelect.addEventListener("change", () => {
       updateExtraFieldFromCard(field, card);
       updateExtraNameVisibility(card, field.name_choice);
+      activateDynamicFieldColumnTarget(card);
     });
     const customToggle = card.querySelector(".extra-custom-select-toggle");
     const customMenu = card.querySelector(".extra-custom-select-menu");
@@ -1109,12 +1271,14 @@ function renderExtraFieldInputs() {
         updateExtraFieldFromCard(field, card);
         updateExtraNameVisibility(card, field.name_choice);
         syncCustomSelect(nameSelect);
+        activateDynamicFieldColumnTarget(card);
         customMenu.classList.add("hidden");
       });
     });
     modeSelect.addEventListener("change", () => {
       updateExtraFieldFromCard(field, card);
       updateExtraFieldVisibility(card, field.mode);
+      activateDynamicFieldColumnTarget(card);
     });
     card.querySelector(".extra-field-remove").addEventListener("click", () => {
       extraFields = extraFields.filter((item) => item.id !== field.id);
@@ -1125,6 +1289,15 @@ function renderExtraFieldInputs() {
   });
 }
 
+function activateDynamicFieldColumnTarget(card) {
+  const mode = card.querySelector('[data-role="mode"]')?.value ?? "raw";
+  const role = mode === "raw" ? "source_col" : mode === "original_minus" ? "operand_col" : "left_col";
+  const input = card.querySelector(`[data-role="${role}"]`) || card.querySelector('[data-role="source_col"]');
+  if (!input) return;
+  activeExtraFieldTarget = input;
+  setActivePick("extra");
+}
+
 function updateExtraFieldFromCard(field, card) {
   field.name_choice = card.querySelector('[data-role="name_choice"]').value;
   field.custom_name = card.querySelector('[data-role="custom_name"]').value;
@@ -1132,7 +1305,7 @@ function updateExtraFieldFromCard(field, card) {
   field.mode = card.querySelector('[data-role="mode"]').value;
   ["source_col", "operand_col", "left_col", "right_col"].forEach((key) => {
     const input = card.querySelector(`[data-role="${key}"]`);
-    const parsed = parseColumnInput(input.value);
+    const parsed = normalizeColumnIndexValue(input.value);
     field[key] = parsed === null ? "" : parsed;
   });
 }
@@ -1220,12 +1393,29 @@ function restoreSettings(config) {
   columnFilters.product.selected = config.product_color ?? "";
   columnFilters.original.selected = config.original_color ?? "";
   columnFilters.final.selected = config.final_price_color ?? "";
-  extraFields = config.extra_fields ?? [];
-  rewardFields = config.reward_fields ?? [];
+  extraFields = (config.extra_fields ?? []).map(normalizeExtraFieldConfig);
+  rewardFields = (config.reward_fields ?? []).map(normalizeRewardFieldConfig);
   renderExtraFieldInputs();
   renderRewardFieldInputs();
   loadAllColumnColors();
   updateCalculateButtonState();
+}
+
+function normalizeExtraFieldConfig(field) {
+  return {
+    ...field,
+    source_col: normalizeColumnIndexValue(field.source_col) ?? "",
+    operand_col: normalizeColumnIndexValue(field.operand_col) ?? "",
+    left_col: normalizeColumnIndexValue(field.left_col) ?? "",
+    right_col: normalizeColumnIndexValue(field.right_col) ?? "",
+  };
+}
+
+function normalizeRewardFieldConfig(field) {
+  return {
+    ...field,
+    source_col: normalizeColumnIndexValue(field.source_col) ?? "",
+  };
 }
 
 function readSettingsStore() {
@@ -1250,7 +1440,36 @@ function cleanupStoredSettings() {
 }
 
 function columnValue(index) {
-  return index === "" || index === null || index === undefined ? "" : columnLabel(Number(index));
+  const parsed = normalizeColumnIndexValue(index);
+  return parsed === null ? "" : columnLabel(parsed);
+}
+
+function normalizeColumnIndexValue(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const text = String(value).trim();
+  if (text === "") return null;
+  if (/^\d+$/.test(text)) return Number(text);
+  return parseColumnInput(text);
+}
+
+function persistDynamicColumnInput(input, colIndex = null) {
+  const card = input.closest(".extra-field-card, .reward-field-card");
+  if (!card) return;
+  const parsed = colIndex ?? normalizeColumnIndexValue(input.value);
+  const value = parsed === null ? "" : parsed;
+  const role = input.dataset.role;
+
+  if (card.classList.contains("extra-field-card")) {
+    const field = extraFields.find((item) => item.id === card.dataset.fieldId);
+    if (field && role) field[role] = value;
+    return;
+  }
+
+  if (card.classList.contains("reward-field-card")) {
+    const field = rewardFields.find((item) => item.id === card.dataset.fieldId);
+    if (field && role) field[role] = value;
+  }
 }
 
 function renderExtraResultHeaders() {
@@ -1290,6 +1509,7 @@ function renderRewardFieldInputs() {
     const nameSelectId = `rewardNameSelect_${field.id}`;
     const card = document.createElement("div");
     card.className = "reward-field-card";
+    card.dataset.fieldId = field.id;
     card.innerHTML = `
       <label>
         <span>\uD56D\uBAA9\uBA85</span>
@@ -1334,11 +1554,15 @@ function renderRewardFieldInputs() {
         activeExtraFieldTarget = input;
         setActivePick("extra");
       });
-      input.addEventListener("input", () => updateRewardFieldFromCard(field, card));
+      input.addEventListener("input", () => {
+        updateRewardFieldFromCard(field, card);
+        persistDynamicColumnInput(input);
+      });
     });
     nameSelect.addEventListener("change", () => {
       updateRewardFieldFromCard(field, card);
       updateRewardNameVisibility(card, field.name_choice);
+      activateDynamicFieldColumnTarget(card);
     });
     const customToggle = card.querySelector(".extra-custom-select-toggle");
     const customMenu = card.querySelector(".extra-custom-select-menu");
@@ -1353,6 +1577,7 @@ function renderRewardFieldInputs() {
         updateRewardFieldFromCard(field, card);
         updateRewardNameVisibility(card, field.name_choice);
         syncCustomSelect(nameSelect);
+        activateDynamicFieldColumnTarget(card);
         customMenu.classList.add("hidden");
       });
     });
@@ -1368,7 +1593,7 @@ function updateRewardFieldFromCard(field, card) {
   field.name_choice = card.querySelector('[data-role="name_choice"]').value;
   field.custom_name = card.querySelector('[data-role="custom_name"]').value;
   field.name = field.name_choice === "custom" ? field.custom_name || "\uC801\uB9BD\uAE08\uC561" : field.name_choice || "\uC801\uB9BD\uAE08\uC561";
-  const parsed = parseColumnInput(card.querySelector('[data-role="source_col"]').value);
+  const parsed = normalizeColumnIndexValue(card.querySelector('[data-role="source_col"]').value);
   field.source_col = parsed === null ? "" : parsed;
 }
 
