@@ -112,6 +112,8 @@ const SETTINGS_RETENTION_DAYS = 30;
 const LOCAL_SETTINGS_KEY = "discountCalculatorFileSettingsV1";
 const fallbackSettingsStore = new Map();
 const extraFieldNameSuggestions = ["선택쿠폰", "중복쿠폰", "카드할인"];
+const GROUPED_PRODUCT_SEPARATOR = "\uFF5C";
+const GROUPED_PRODUCT_JOINER = ` ${GROUPED_PRODUCT_SEPARATOR} `;
 const rewardFieldNameSuggestions = ["\uC2A4\uB9C8\uC77C\uCE74\uB4DC", "\uBA38\uB2C8\uCDA9\uC804", "\uAF2D\uBA64\uBC841", "\uAF2D\uBA64\uBC842"];
 const worksheetMergeRangeCache = new WeakMap();
 const columnFilters = {
@@ -1375,9 +1377,9 @@ function buildGroupedNameFromCleanedNames(cleanedNames) {
   const commonLength = commonPrefix.trim().length;
   if (commonLength < 6 || maxSuffixLength > commonLength * 1.2) return "";
   if (rawSuffixes.some((suffix) => !suffix)) {
-    return `${commonPrefix.trim()} | ${nonEmptySuffixes.join(" | ")}`;
+    return `${commonPrefix.trim()} ${GROUPED_PRODUCT_SEPARATOR} ${nonEmptySuffixes.join(GROUPED_PRODUCT_JOINER)}`;
   }
-  return `${firstName} | ${rawSuffixes.slice(1).join(" | ")}`;
+  return `${firstName} ${GROUPED_PRODUCT_SEPARATOR} ${rawSuffixes.slice(1).join(GROUPED_PRODUCT_JOINER)}`;
 }
 
 function removeSharedLeadingBrand(names) {
