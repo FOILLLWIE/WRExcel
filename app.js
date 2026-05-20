@@ -35,6 +35,8 @@ const itemCount = qs('[data-role="item-count"]');
 const resultBody = qs('[data-role="result-body"]');
 const editResultsButton = actionButton("toggle-edit-results");
 const cancelEditResultsButton = actionButton("cancel-edit-results");
+const addResultRowButton = actionButton("add-result-row");
+const editAddRowWrap = qs('[data-role="edit-add-row-wrap"]');
 const expandResultsButton = actionButton("toggle-expand-results");
 const productSearch = qs('[data-role="product-search"]');
 const productFilterButton = actionButton("toggle-product-filter");
@@ -99,6 +101,9 @@ let floatingHeaderTable = null;
 let floatingCategory = null;
 let activeInlineEdit = null;
 let editRowsSnapshot = null;
+let editSortSnapshot = null;
+let draggedResultRowId = null;
+let lastActiveCategoryKey = "";
 const DB_NAME = "discountCalculatorDB";
 const DB_VERSION = 1;
 const SETTINGS_STORE_NAME = "fileSettings";
@@ -291,21 +296,48 @@ autoLoadColorFilters.addEventListener("change", () => {
 productNameResizer.addEventListener("pointerdown", startProductColumnResize);
 editResultsButton.addEventListener("click", () => {
   if (isEditMode) {
-    commitInlineEdit(true);
-    setEditMode(false, true);
+    commitInlineEdit(false);
+    setEditMode(false);
     editRowsSnapshot = null;
+    editSortSnapshot = null;
+    renderFilteredResults();
+    queueSaveCurrentSettings();
     return;
   }
   editRowsSnapshot = cloneRows(currentRows);
+  editSortSnapshot = { field: sortField.value, direction: sortDirection.value };
   setEditMode(true);
+  renderFilteredResults();
 });
 cancelEditResultsButton.addEventListener("click", () => {
   activeInlineEdit = null;
   if (editRowsSnapshot) currentRows = cloneRows(editRowsSnapshot);
+  if (editSortSnapshot) {
+    sortField.value = editSortSnapshot.field;
+    sortDirection.value = editSortSnapshot.direction;
+    syncCustomSelect(sortField);
+    syncCustomSelect(sortDirection);
+  }
   editRowsSnapshot = null;
+  editSortSnapshot = null;
   setEditMode(false);
   renderFilteredResults();
 });
+if (addResultRowButton) {
+  addResultRowButton.addEventListener("click", () => {
+    commitInlineEdit(false);
+    const row = createEmptyResultRow();
+    currentRows.push(row);
+    selectedRowId = String(row.row_id);
+    setSortFieldToCustomOrder();
+    renderFilteredResults();
+    requestAnimationFrame(() => {
+      const rowElement = resultBody.querySelector(`tr[data-row-id="${cssEscape(String(row.row_id))}"]`);
+      const productButton = rowElement?.querySelector('[data-column="product_name"] [data-copy-value]');
+      if (productButton) startInlineEdit(productButton, row);
+    });
+  });
+}
 expandResultsButton.addEventListener("click", () => {
   resultSection.classList.toggle("expanded-results");
   const expanded = resultSection.classList.contains("expanded-results");
@@ -604,12 +636,13 @@ function renderResults(payload) {
 
 function renderFilteredResults() {
   resultBody.innerHTML = "";
+  itemCount.textContent = `${currentRows.length}개`;
 
   const keyword = productSearch.value.trim().toLowerCase();
   const rows = currentRows
     .filter((row) => row.product_name.toLowerCase().includes(keyword))
     .sort((a, b) => {
-      if (sortField.value === "none") return 0;
+      if (sortField.value === "none" || sortField.value === "custom") return 0;
       const diff = a[sortField.value] - b[sortField.value];
       return sortDirection.value === "asc" ? diff : -diff;
     });
@@ -650,8 +683,10 @@ function renderFilteredResults() {
     const rewardCells = rewardFields
       .map((field, index) => `<td class="reward-column${index === 0 ? " reward-group-start" : ""}" data-column="reward_${field.id}">${buildCopyCell(formatCurrency(row.reward_values?.[field.id] ?? 0))}</td>`)
       .join("");
+    const dragControl = isEditMode ? `<button class="row-drag-handle" type="button" draggable="true" data-drag-row="${escapeAttribute(row.row_id)}" aria-label="행 이동">⋮⋮</button>` : "";
+    const deleteControl = isEditMode ? `<button class="row-delete-button" type="button" data-delete-row="${escapeAttribute(row.row_id)}" aria-label="행 삭제">×</button>` : "";
     tr.innerHTML = `
-      <td data-column="product_name">${buildCopyCell(displayProductName(row.product_name ?? ""))}</td>
+      <td data-column="product_name"><div class="product-cell-content">${dragControl}${deleteControl}${buildCopyCell(displayProductName(row.product_name ?? ""))}</div></td>
       <td data-column="original_price">${buildCopyCell(formatCurrency(row.original_price))}</td>
       <td data-column="discount_amount">${buildCopyCell(formatCurrency(row.discount_amount))}</td>
       ${extraCells}
@@ -662,16 +697,58 @@ function renderFilteredResults() {
       <td data-column="discount_rate">${buildCopyCell(formatRate(row.discount_rate))}</td>
     `;
     tr.querySelectorAll("[data-copy-value]").forEach((button) => {
+      button.addEventListener("pointerdown", (event) => {
+        if (!isEditMode) return;
+        event.preventDefault();
+        event.stopPropagation();
+        startInlineEdit(event.currentTarget, row);
+      });
       button.addEventListener("click", async (event) => {
         event.stopPropagation();
         if (isEditMode) {
-          startInlineEdit(event.currentTarget, row);
           return;
         }
         selectedRowId = String(row.row_id);
         await copyText(event.currentTarget.dataset.copyValue);
         renderFilteredResults();
       });
+    });
+    tr.querySelector("[data-delete-row]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      commitInlineEdit(false);
+      currentRows = currentRows.filter((item) => String(item.row_id) !== String(row.row_id));
+      if (String(selectedRowId) === String(row.row_id)) selectedRowId = null;
+      renderFilteredResults();
+    });
+    tr.querySelector("[data-drag-row]")?.addEventListener("dragstart", (event) => {
+      if (!isEditMode) {
+        event.preventDefault();
+        return;
+      }
+      commitInlineEdit(false);
+      draggedResultRowId = String(row.row_id);
+      tr.classList.add("dragging-result-row");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", draggedResultRowId);
+    });
+    tr.addEventListener("dragover", (event) => {
+      if (!isEditMode || !draggedResultRowId || draggedResultRowId === String(row.row_id)) return;
+      event.preventDefault();
+      tr.classList.add("drag-over-result-row");
+      event.dataTransfer.dropEffect = "move";
+    });
+    tr.addEventListener("dragleave", () => {
+      tr.classList.remove("drag-over-result-row");
+    });
+    tr.addEventListener("drop", (event) => {
+      if (!isEditMode || !draggedResultRowId) return;
+      event.preventDefault();
+      tr.classList.remove("drag-over-result-row");
+      moveResultRow(draggedResultRowId, String(row.row_id));
+    });
+    tr.addEventListener("dragend", () => {
+      draggedResultRowId = null;
+      tr.classList.remove("dragging-result-row", "drag-over-result-row");
     });
     tr.addEventListener("click", () => {
       if (isEditMode) return;
@@ -720,12 +797,82 @@ function buildCopyCell(value) {
   return `<button class="copy-value" type="button" data-copy-value="${copyValue}">${displayValue}</button>`;
 }
 
+function setSortFieldToCustomOrder() {
+  if (![...sortField.options].some((option) => option.value === "custom")) {
+    const option = document.createElement("option");
+    option.value = "custom";
+    option.textContent = "사용자 설정";
+    sortField.insertBefore(option, sortField.options[1] ?? null);
+  }
+  sortField.value = "custom";
+  syncCustomSelect(sortField);
+}
+
+function moveResultRow(draggedId, targetId) {
+  if (draggedId === targetId) return;
+  const fromIndex = currentRows.findIndex((row) => String(row.row_id) === String(draggedId));
+  const targetIndex = currentRows.findIndex((row) => String(row.row_id) === String(targetId));
+  if (fromIndex < 0 || targetIndex < 0) return;
+
+  const targetRow = currentRows[targetIndex];
+  const [movedRow] = currentRows.splice(fromIndex, 1);
+  movedRow.category_name = targetRow.category_name ?? movedRow.category_name ?? "";
+
+  let targetIndexAfterRemoval = currentRows.findIndex((row) => String(row.row_id) === String(targetId));
+  if (targetIndexAfterRemoval < 0) targetIndexAfterRemoval = currentRows.length;
+
+  const insertIndex = fromIndex < targetIndex ? targetIndexAfterRemoval + 1 : targetIndexAfterRemoval;
+  currentRows.splice(insertIndex, 0, movedRow);
+
+  selectedRowId = String(movedRow.row_id);
+  draggedResultRowId = null;
+  setSortFieldToCustomOrder();
+  renderFilteredResults();
+  queueSaveCurrentSettings();
+}
+
+function getCategoryForNewResultRow() {
+  if (!categoryColumn.dataset.index) return "";
+  if (selectedRowId) {
+    const selectedRow = currentRows.find((row) => String(row.row_id) === String(selectedRowId));
+    if (selectedRow?.category_name) return selectedRow.category_name;
+  }
+  if (lastActiveCategoryKey && lastActiveCategoryKey !== "???") return lastActiveCategoryKey;
+  const groups = groupRowsByCategory(currentRows);
+  const lastGroup = groups[groups.length - 1];
+  return lastGroup?.[0] === "???" ? "" : (lastGroup?.[0] ?? "");
+}
+
+function createEmptyResultRow(categoryName = "") {
+  const extraValues = Object.fromEntries(extraFields.map((field) => [field.id, 0]));
+  const rewardValues = Object.fromEntries(rewardFields.map((field) => [field.id, 0]));
+  const row = {
+    row_id: `manual_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    product_name: "새 상품",
+    category_name: categoryName || "",
+    base_original_price: 0,
+    has_extra_price_formula: extraFields.length > 0,
+    original_price: 0,
+    discount_amount: 0,
+    extra_values: extraValues,
+    reward_values: rewardValues,
+    total_reward_amount: 0,
+    effective_price: 0,
+    total_discount_amount: 0,
+    discount_rate: 0,
+  };
+  recalculateDerivedValues(row);
+  return row;
+}
+
 function setEditMode(enabled) {
-  isEditMode = enabled;
+  isEditMode = Boolean(enabled);
+  draggedResultRowId = null;
   editResultsButton.classList.toggle("active", isEditMode);
   editResultsButton.textContent = isEditMode ? "저장하기" : "편집";
   resultSection.classList.toggle("edit-mode", isEditMode);
   setElementHidden(cancelEditResultsButton, !isEditMode);
+  setElementHidden(editAddRowWrap, !isEditMode);
 }
 
 function cloneRows(rows) {
@@ -2084,8 +2231,11 @@ function applyEditedValue(row, column, value) {
     row.discount_amount = numericValue;
     row.has_extra_price_formula = false;
   } else if (column.startsWith("extra_")) {
+    row.extra_values = row.extra_values ?? {};
     row.extra_values[column.replace("extra_", "")] = numericValue;
+    row.has_extra_price_formula = true;
   } else if (column.startsWith("reward_")) {
+    row.reward_values = row.reward_values ?? {};
     row.reward_values[column.replace("reward_", "")] = numericValue;
   }
 }
