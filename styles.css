@@ -1025,12 +1025,16 @@ th {
 .table-panel th.extra-column,
 .table-panel td.extra-column {
   width: 1%;
-  min-width: 96px;
-  max-width: 150px;
+  min-width: 78px;
+  max-width: 120px;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .table-panel .extra-column .copy-value {
-  max-width: 130px;
+  max-width: 104px;
+  padding-left: 6px;
+  padding-right: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
