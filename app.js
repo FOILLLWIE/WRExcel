@@ -1307,8 +1307,19 @@ function groupSimilarResultRows(rows) {
 
 function canGroupSimilarRows(rowA, rowB) {
   if ((rowA.category_name || "") !== (rowB.category_name || "")) return false;
-  if (buildResultSignature(rowA) !== buildResultSignature(rowB)) return false;
+  if (!hasSameVisibleResultValues(rowA, rowB)) return false;
   return Boolean(buildGroupedProductName([displayProductName(rowA.product_name ?? ""), displayProductName(rowB.product_name ?? "")]));
+}
+
+function hasSameVisibleResultValues(rowA, rowB) {
+  const columns = ["original_price", "discount_amount", "total_discount_amount", "discount_rate"];
+  if (rewardFields.length > 0) columns.push("total_reward_amount", "effective_price");
+  const baseSame = columns.every((column) => normalizeSignatureValue(rowA[column]) === normalizeSignatureValue(rowB[column]));
+  if (!baseSame) return false;
+  const extraSame = extraFields.every((field) => normalizeSignatureValue(rowA.extra_values?.[field.id]) === normalizeSignatureValue(rowB.extra_values?.[field.id]));
+  if (!extraSame) return false;
+  const rewardSame = rewardFields.every((field) => normalizeSignatureValue(rowA.reward_values?.[field.id]) === normalizeSignatureValue(rowB.reward_values?.[field.id]));
+  return rewardSame;
 }
 
 function buildResultSignature(row) {
@@ -1336,6 +1347,22 @@ function normalizeSignatureValue(value) {
 function buildGroupedProductName(names) {
   const cleanedNames = names.map((name) => String(name ?? "").replace(/\s+/g, " ").trim()).filter(Boolean);
   if (cleanedNames.length < 2) return "";
+
+  const directName = buildGroupedNameFromCleanedNames(cleanedNames);
+  if (directName) return directName;
+
+  const brandlessNames = removeSharedLeadingBrand(cleanedNames);
+  if (brandlessNames.join("||") !== cleanedNames.join("||")) {
+    const brandlessName = buildGroupedNameFromCleanedNames(brandlessNames);
+    if (brandlessName) {
+      const brand = cleanedNames[0].split(" ")[0];
+      return `${brand} ${brandlessName}`.trim();
+    }
+  }
+  return "";
+}
+
+function buildGroupedNameFromCleanedNames(cleanedNames) {
   const firstName = cleanedNames[0];
   const commonPrefix = getCommonWordPrefix(cleanedNames);
   if (!commonPrefix) return "";
@@ -1346,11 +1373,19 @@ function buildGroupedProductName(names) {
   if (nonEmptySuffixes.length === 0) return "";
   const maxSuffixLength = Math.max(...nonEmptySuffixes.map((suffix) => suffix.length));
   const commonLength = commonPrefix.trim().length;
-  if (commonLength < 6 || maxSuffixLength > commonLength) return "";
+  if (commonLength < 6 || maxSuffixLength > commonLength * 1.2) return "";
   if (rawSuffixes.some((suffix) => !suffix)) {
     return `${commonPrefix.trim()} | ${nonEmptySuffixes.join(" | ")}`;
   }
   return `${firstName} | ${rawSuffixes.slice(1).join(" | ")}`;
+}
+
+function removeSharedLeadingBrand(names) {
+  const firstWords = names[0].split(" ");
+  if (firstWords.length < 2) return names;
+  const brand = firstWords[0].toLowerCase();
+  if (!names.every((name) => name.split(" ")[0]?.toLowerCase() === brand)) return names;
+  return names.map((name) => name.split(" ").slice(1).join(" ").trim()).filter(Boolean);
 }
 
 function getCommonWordPrefix(names) {
