@@ -1022,6 +1022,19 @@ th {
   background: rgba(154, 91, 42, 0.08);
 }
 
+.table-panel th.extra-column,
+.table-panel td.extra-column {
+  width: 1%;
+  min-width: 96px;
+  max-width: 150px;
+}
+
+.table-panel .extra-column .copy-value {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .resizable-column {
   position: relative;
   min-width: 180px;

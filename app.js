@@ -95,6 +95,7 @@ const DB_NAME = "discountCalculatorDB";
 const DB_VERSION = 1;
 const SETTINGS_STORE_NAME = "fileSettings";
 const SETTINGS_RETENTION_DAYS = 30;
+const LOCAL_SETTINGS_KEY = "discountCalculatorFileSettingsV1";
 const fallbackSettingsStore = new Map();
 const extraFieldNameSuggestions = ["선택쿠폰", "중복쿠폰", "카드할인"];
 const rewardFieldNameSuggestions = ["\uC2A4\uB9C8\uC77C\uCE74\uB4DC", "\uBA38\uB2C8\uCDA9\uC804", "\uAF2D\uBA64\uBC841", "\uAF2D\uBA64\uBC842"];
@@ -113,10 +114,10 @@ let productColumnWidth = null;
 initializeCustomSelects();
 cleanupStoredSettings();
 window.addEventListener("beforeunload", () => {
-  if (uploadedFile && currentFileKey) saveCurrentSettings();
+  if (uploadedFile && currentFileKey) saveCurrentSettingsToLocalMirror();
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden" && uploadedFile && currentFileKey) saveCurrentSettings();
+  if (document.visibilityState === "hidden" && uploadedFile && currentFileKey) saveCurrentSettingsToLocalMirror();
 });
 
 fileInput.addEventListener("change", async (event) => {
@@ -205,6 +206,14 @@ calculateButton.addEventListener("click", async () => {
 productSearch.addEventListener("input", renderFilteredResults);
 sortField.addEventListener("change", renderFilteredResults);
 sortDirection.addEventListener("change", renderFilteredResults);
+resultSection.addEventListener("click", (event) => {
+  if (!selectedRowId) return;
+  const isResultRow = event.target.closest("tbody tr:not(.category-group-row)");
+  const isInteractive = event.target.closest("button, input, select, textarea, [data-role='select'], [data-role='select-menu']");
+  if (isResultRow || isInteractive) return;
+  selectedRowId = null;
+  renderFilteredResults();
+});
 productFilterButton.addEventListener("click", (event) => {
   event.stopPropagation();
   setElementHidden(productFilterPanel, !productFilterPanel.hidden ? true : false);
@@ -1019,6 +1028,7 @@ async function calculateExcelInBrowser(fields) {
     });
 
     const totalDiscount = Math.round(originalPrice - calculatedFinalPrice);
+    if (totalDiscount === 0) continue;
     rows.push({
       row_id: rowNumber,
       product_name: String(productValue),
@@ -1035,7 +1045,7 @@ async function calculateExcelInBrowser(fields) {
       effective_price: Math.round(calculatedFinalPrice - totalRewardAmount),
     });
   }
-  if (rows.length === 0) throw new Error("선택한 범위에서 계산 가능한 숫자 행을 찾지 못했습니다.");
+  if (rows.length === 0) throw new Error("선택한 범위에서 출력할 상품을 찾지 못했습니다.");
   return { rows, extra_fields: extraFieldList, reward_fields: rewardFieldList };
 }
 
@@ -1435,6 +1445,7 @@ function buildCurrentSettingsData() {
 
 function queueSaveCurrentSettings() {
   if (!uploadedFile || !currentFileKey) return;
+  saveCurrentSettingsToLocalMirror();
   window.clearTimeout(settingsSaveTimer);
   settingsSaveTimer = window.setTimeout(() => {
     saveCurrentSettings();
@@ -1449,6 +1460,12 @@ async function saveCurrentSettings() {
   } catch (error) {
     console.warn("Failed to save file settings.", error);
   }
+}
+
+function saveCurrentSettingsToLocalMirror() {
+  const data = buildCurrentSettingsData();
+  if (!data) return;
+  saveLocalFileSettings(data.fileKey, data);
 }
 
 function normalizeStoredConfig(config) {
@@ -1585,6 +1602,7 @@ async function withSettingsStore(mode, callback) {
 
 async function saveFileSettings(fileKey, data) {
   if (!fileKey || !data) return;
+  saveLocalFileSettings(fileKey, data);
   try {
     const saved = await withSettingsStore("readwrite", (store) => {
       store.put({ ...data, fileKey });
@@ -1603,6 +1621,7 @@ async function loadSettingsForUploadedFile(file) {
 
 async function loadLatestFileSettingsByName(fileName) {
   if (!fileName) return null;
+  const localLatest = loadLatestLocalSettingsByName(fileName);
   try {
     const result = await withSettingsStore("readonly", (store, done) => {
       const request = store.openCursor();
@@ -1621,33 +1640,35 @@ async function loadLatestFileSettingsByName(fileName) {
       };
       request.onerror = () => done(null);
     });
-    return result ?? null;
+    return pickLatestSettings(result, localLatest);
   } catch {
     let latest = null;
     fallbackSettingsStore.forEach((value) => {
       if (value?.fileName === fileName && (!latest || (value.savedAt ?? 0) > (latest.savedAt ?? 0))) latest = value;
     });
-    return latest;
+    return pickLatestSettings(latest, localLatest);
   }
 }
 
 async function loadFileSettings(fileKey) {
   if (!fileKey) return null;
+  const local = loadLocalFileSettings(fileKey);
   try {
     const result = await withSettingsStore("readonly", (store, done) => {
       const request = store.get(fileKey);
       request.onsuccess = () => done(request.result ?? null);
       request.onerror = () => done(null);
     });
-    return result ?? fallbackSettingsStore.get(fileKey) ?? null;
+    return result ?? local ?? fallbackSettingsStore.get(fileKey) ?? null;
   } catch {
-    return fallbackSettingsStore.get(fileKey) ?? null;
+    return local ?? fallbackSettingsStore.get(fileKey) ?? null;
   }
 }
 
 async function deleteFileSettings(fileKey) {
   if (!fileKey) return;
   fallbackSettingsStore.delete(fileKey);
+  deleteLocalFileSettings(fileKey);
   try {
     await withSettingsStore("readwrite", (store) => {
       store.delete(fileKey);
@@ -1659,6 +1680,7 @@ async function deleteFileSettings(fileKey) {
 
 async function cleanupStoredSettings() {
   const cutoff = Date.now() - SETTINGS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  cleanupLocalFileSettings(cutoff);
   try {
     await withSettingsStore("readwrite", (store) => {
       const request = store.openCursor();
@@ -1672,6 +1694,68 @@ async function cleanupStoredSettings() {
   } catch {
     // Cleanup failures should not affect calculator behavior.
   }
+}
+
+function readLocalSettingsMap() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_SETTINGS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function writeLocalSettingsMap(map) {
+  try {
+    localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(map));
+  } catch {
+    // localStorage can be blocked in private mode. IndexedDB/fallback map will still be attempted.
+  }
+}
+
+function saveLocalFileSettings(fileKey, data) {
+  if (!fileKey || !data) return;
+  const map = readLocalSettingsMap();
+  map[fileKey] = { ...data, fileKey, savedAt: Date.now() };
+  writeLocalSettingsMap(map);
+}
+
+function loadLocalFileSettings(fileKey) {
+  if (!fileKey) return null;
+  return readLocalSettingsMap()[fileKey] ?? null;
+}
+
+function deleteLocalFileSettings(fileKey) {
+  const map = readLocalSettingsMap();
+  if (!(fileKey in map)) return;
+  delete map[fileKey];
+  writeLocalSettingsMap(map);
+}
+
+function loadLatestLocalSettingsByName(fileName) {
+  const values = Object.values(readLocalSettingsMap());
+  return values.reduce((latest, value) => {
+    if (value?.fileName !== fileName) return latest;
+    if (!latest || (value.savedAt ?? 0) > (latest.savedAt ?? 0)) return value;
+    return latest;
+  }, null);
+}
+
+function cleanupLocalFileSettings(cutoff) {
+  const map = readLocalSettingsMap();
+  let changed = false;
+  Object.entries(map).forEach(([key, value]) => {
+    if (!value?.savedAt || value.savedAt < cutoff) {
+      delete map[key];
+      changed = true;
+    }
+  });
+  if (changed) writeLocalSettingsMap(map);
+}
+
+function pickLatestSettings(...items) {
+  return items
+    .filter(Boolean)
+    .sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0))[0] ?? null;
 }
 
 function columnValue(index) {
