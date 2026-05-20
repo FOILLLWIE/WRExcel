@@ -34,6 +34,7 @@ const calculateButton = actionButton("calculate");
 const itemCount = qs('[data-role="item-count"]');
 const resultBody = qs('[data-role="result-body"]');
 const editResultsButton = actionButton("toggle-edit-results");
+const cancelEditResultsButton = actionButton("cancel-edit-results");
 const expandResultsButton = actionButton("toggle-expand-results");
 const productSearch = qs('[data-role="product-search"]');
 const productFilterButton = actionButton("toggle-product-filter");
@@ -69,6 +70,7 @@ const dialogActions = qs('[data-role="dialog-actions"]', appDialog);
 const addExtraFieldButton = actionButton("add-extra-field");
 const extraFieldsList = qs('[data-role="dynamic-fields-list"][data-type="extra"]');
 const resultHeaderRow = qs('[data-role="result-header-row"]');
+const tableWrap = qs(".table-wrap");
 const extraColumnsAnchor = qs('[data-column="total_reward_amount"]', resultHeaderRow);
 const addRewardFieldButton = actionButton("add-reward-field");
 const rewardFieldsList = qs('[data-role="dynamic-fields-list"][data-type="reward"]');
@@ -87,10 +89,16 @@ const hiddenColumns = new Set();
 let productNameFilters = [];
 let extraFields = [];
 let rewardFields = [];
+const collapsedCategories = new Set();
 let activeExtraFieldTarget = null;
 let pendingRestoreConfig = null;
 let currentFileKey = "";
 let settingsSaveTimer = null;
+let floatingHeader = null;
+let floatingHeaderTable = null;
+let floatingCategory = null;
+let activeInlineEdit = null;
+let editRowsSnapshot = null;
 const DB_NAME = "discountCalculatorDB";
 const DB_VERSION = 1;
 const SETTINGS_STORE_NAME = "fileSettings";
@@ -119,6 +127,9 @@ window.addEventListener("beforeunload", () => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden" && uploadedFile && currentFileKey) saveCurrentSettingsToLocalMirror();
 });
+window.addEventListener("scroll", updateFloatingResultHeader, { passive: true });
+window.addEventListener("resize", updateFloatingResultHeader);
+tableWrap?.addEventListener("scroll", updateFloatingResultHeader, { passive: true });
 
 fileInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
@@ -207,6 +218,7 @@ productSearch.addEventListener("input", renderFilteredResults);
 sortField.addEventListener("change", renderFilteredResults);
 sortDirection.addEventListener("change", renderFilteredResults);
 resultSection.addEventListener("click", (event) => {
+  if (isEditMode) return;
   if (!selectedRowId) return;
   const isResultRow = event.target.closest("tbody tr:not(.category-group-row)");
   const isInteractive = event.target.closest("button, input, select, textarea, [data-role='select'], [data-role='select-menu']");
@@ -278,10 +290,21 @@ autoLoadColorFilters.addEventListener("change", () => {
 });
 productNameResizer.addEventListener("pointerdown", startProductColumnResize);
 editResultsButton.addEventListener("click", () => {
-  isEditMode = !isEditMode;
-  editResultsButton.classList.toggle("active", isEditMode);
-  editResultsButton.textContent = isEditMode ? "저장하기" : "편집";
-  resultSection.classList.toggle("edit-mode", isEditMode);
+  if (isEditMode) {
+    commitInlineEdit(true);
+    setEditMode(false, true);
+    editRowsSnapshot = null;
+    return;
+  }
+  editRowsSnapshot = cloneRows(currentRows);
+  setEditMode(true);
+});
+cancelEditResultsButton.addEventListener("click", () => {
+  activeInlineEdit = null;
+  if (editRowsSnapshot) currentRows = cloneRows(editRowsSnapshot);
+  editRowsSnapshot = null;
+  setEditMode(false);
+  renderFilteredResults();
 });
 expandResultsButton.addEventListener("click", () => {
   resultSection.classList.toggle("expanded-results");
@@ -558,10 +581,16 @@ async function postFile(path, extraFields = {}) {
 function renderResults(payload) {
   itemCount.textContent = `${payload.rows.length}개`;
   currentRows = payload.rows;
+  editRowsSnapshot = null;
+  activeInlineEdit = null;
+  setEditMode(false);
   extraFields = payload.extra_fields ?? extraFields;
   rewardFields = payload.reward_fields ?? rewardFields;
+  collapsedCategories.clear();
   resultSection.classList.toggle("single-extra-field", extraFields.length === 1);
   resultSection.classList.toggle("multiple-extra-fields", extraFields.length > 1);
+  resultSection.classList.toggle("no-reward-fields", rewardFields.length === 0);
+  resultSection.classList.toggle("has-reward-fields", rewardFields.length > 0);
   productSearch.value = "";
   productNameFilters = [];
   renderProductFilterInputs();
@@ -588,12 +617,29 @@ function renderFilteredResults() {
   const groupedRows = categoryColumn.dataset.index ? groupRowsByCategory(rows) : [["", rows]];
 
   groupedRows.forEach(([category, categoryRows]) => {
+    const categoryKey = category || "미분류";
+    const isCollapsed = collapsedCategories.has(categoryKey);
     if (categoryColumn.dataset.index) {
       const groupRow = document.createElement("tr");
-      groupRow.className = "category-group-row";
-      groupRow.innerHTML = `<td colspan="${7 + extraFields.length + rewardFields.length}">${escapeHtml(category || "미분류")}</td>`;
+      groupRow.className = `category-group-row${isCollapsed ? " collapsed" : ""}`;
+      groupRow.dataset.category = categoryKey;
+      groupRow.innerHTML = `
+        <td colspan="${7 + extraFields.length + rewardFields.length}">
+          <button class="category-toggle" type="button" aria-expanded="${!isCollapsed}">
+            <span class="category-caret">${isCollapsed ? ">" : "⌄"}</span>
+            <span>${escapeHtml(categoryKey)}</span>
+            <span class="category-count">${categoryRows.length}개</span>
+          </button>
+        </td>`;
+      groupRow.querySelector(".category-toggle").addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (collapsedCategories.has(categoryKey)) collapsedCategories.delete(categoryKey);
+        else collapsedCategories.add(categoryKey);
+        renderFilteredResults();
+      });
       resultBody.appendChild(groupRow);
     }
+    if (isCollapsed) return;
     categoryRows.forEach((row) => {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row.row_id;
@@ -605,7 +651,7 @@ function renderFilteredResults() {
       .map((field, index) => `<td class="reward-column${index === 0 ? " reward-group-start" : ""}" data-column="reward_${field.id}">${buildCopyCell(formatCurrency(row.reward_values?.[field.id] ?? 0))}</td>`)
       .join("");
     tr.innerHTML = `
-      <td>${buildCopyCell(displayProductName(row.product_name ?? ""))}</td>
+      <td data-column="product_name">${buildCopyCell(displayProductName(row.product_name ?? ""))}</td>
       <td data-column="original_price">${buildCopyCell(formatCurrency(row.original_price))}</td>
       <td data-column="discount_amount">${buildCopyCell(formatCurrency(row.discount_amount))}</td>
       ${extraCells}
@@ -622,11 +668,15 @@ function renderFilteredResults() {
           startInlineEdit(event.currentTarget, row);
           return;
         }
+        selectedRowId = String(row.row_id);
         await copyText(event.currentTarget.dataset.copyValue);
+        renderFilteredResults();
       });
     });
     tr.addEventListener("click", () => {
-      selectedRowId = String(row.row_id);
+      if (isEditMode) return;
+      if (!selectedRowId) return;
+      selectedRowId = null;
       renderFilteredResults();
     });
       resultBody.appendChild(tr);
@@ -638,6 +688,7 @@ function renderFilteredResults() {
   applyRewardColumnVisibility();
   applyVisibleColumns();
   applyPriceHighlighting();
+  updateFloatingResultHeader();
   setElementHidden(emptyResultMessage, rows.length > 0);
 }
 
@@ -667,6 +718,18 @@ function buildCopyCell(value) {
   const displayValue = escapeHtml(value);
   const copyValue = escapeAttribute(value);
   return `<button class="copy-value" type="button" data-copy-value="${copyValue}">${displayValue}</button>`;
+}
+
+function setEditMode(enabled) {
+  isEditMode = enabled;
+  editResultsButton.classList.toggle("active", isEditMode);
+  editResultsButton.textContent = isEditMode ? "저장하기" : "편집";
+  resultSection.classList.toggle("edit-mode", isEditMode);
+  setElementHidden(cancelEditResultsButton, !isEditMode);
+}
+
+function cloneRows(rows) {
+  return JSON.parse(JSON.stringify(rows ?? []));
 }
 
 function escapeHtml(value) {
@@ -1954,30 +2017,49 @@ function renderRewardResultHeaders() {
 }
 
 function startInlineEdit(button, row) {
-  const cell = button.closest("td");
+  let cell = button.closest("td");
   const column = cell?.dataset.column ?? "product_name";
   if (!cell || column === "total_discount_amount" || column === "discount_rate" || column === "total_reward_amount" || column === "effective_price") {
     return;
+  }
+  if (activeInlineEdit?.input === button) return;
+  if (activeInlineEdit) {
+    commitInlineEdit(true);
+    const selector = `tr[data-row-id="${row.row_id}"] td[data-column="${cssEscape(column)}"] [data-copy-value]`;
+    button = resultBody.querySelector(selector);
+    cell = button?.closest("td");
+    if (!button || !cell) return;
   }
 
   const input = document.createElement("input");
   input.className = "inline-edit-input";
   input.value = getEditableValue(row, column);
   button.replaceWith(input);
+  activeInlineEdit = { input, row, column };
   input.focus();
   input.select();
 
-  const commit = () => {
-    applyEditedValue(row, column, input.value);
-    recalculateDerivedValues(row);
-    renderFilteredResults();
-  };
-
-  input.addEventListener("blur", commit, { once: true });
+  input.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      if (activeInlineEdit?.input === input) commitInlineEdit(true);
+    }, 0);
+  }, { once: true });
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") input.blur();
-    if (event.key === "Escape") renderFilteredResults();
+    if (event.key === "Enter") commitInlineEdit(true);
+    if (event.key === "Escape") {
+      activeInlineEdit = null;
+      renderFilteredResults();
+    }
   });
+}
+
+function commitInlineEdit(shouldRender = true) {
+  if (!activeInlineEdit) return;
+  const { input, row, column } = activeInlineEdit;
+  activeInlineEdit = null;
+  applyEditedValue(row, column, input.value);
+  recalculateDerivedValues(row);
+  if (shouldRender) renderFilteredResults();
 }
 
 function getEditableValue(row, column) {
@@ -2363,4 +2445,140 @@ function applyProductColumnWidth() {
     row.children[0].style.width = `${productColumnWidth}px`;
     row.children[0].style.maxWidth = `${productColumnWidth}px`;
   });
+  updateFloatingResultHeader();
+}
+
+function ensureFloatingResultHeader() {
+  if (floatingHeader) return floatingHeader;
+  floatingHeader = document.createElement("div");
+  floatingHeader.className = "floating-result-header";
+  floatingHeader.hidden = true;
+  floatingHeaderTable = document.createElement("table");
+  floatingHeader.appendChild(floatingHeaderTable);
+  document.body.appendChild(floatingHeader);
+  return floatingHeader;
+}
+
+function updateFloatingResultHeader() {
+  if (!tableWrap || resultSection.hidden || resultHeaderRow.children.length === 0) {
+    hideFloatingResultHeader();
+    hideFloatingCategory();
+    return;
+  }
+  const table = tableWrap.querySelector("table");
+  if (!table) {
+    hideFloatingResultHeader();
+    hideFloatingCategory();
+    return;
+  }
+
+  const wrapRect = tableWrap.getBoundingClientRect();
+  const headerRect = resultHeaderRow.getBoundingClientRect();
+  const shouldShow = wrapRect.top < 0 && wrapRect.bottom > headerRect.height + 8;
+  if (!shouldShow) {
+    hideFloatingResultHeader();
+    hideFloatingCategory();
+    return;
+  }
+
+  ensureFloatingResultHeader();
+  const clonedHead = document.createElement("thead");
+  const clonedRow = resultHeaderRow.cloneNode(true);
+  [...resultHeaderRow.children].forEach((sourceCell, index) => {
+    const clonedCell = clonedRow.children[index];
+    if (!clonedCell) return;
+    const width = sourceCell.getBoundingClientRect().width;
+    clonedCell.style.width = `${width}px`;
+    clonedCell.style.minWidth = `${width}px`;
+    clonedCell.style.maxWidth = `${width}px`;
+  });
+  clonedHead.appendChild(clonedRow);
+  floatingHeaderTable.innerHTML = "";
+  floatingHeaderTable.appendChild(clonedHead);
+  floatingHeaderTable.style.width = `${table.scrollWidth}px`;
+  floatingHeaderTable.style.transform = `translateX(${-tableWrap.scrollLeft}px)`;
+
+  floatingHeader.hidden = false;
+  floatingHeader.style.left = `${wrapRect.left}px`;
+  floatingHeader.style.width = `${wrapRect.width}px`;
+  updateFloatingCategory(wrapRect, headerRect.height);
+}
+
+function hideFloatingResultHeader() {
+  if (!floatingHeader) return;
+  floatingHeader.hidden = true;
+  hideFloatingCategory();
+}
+
+function ensureFloatingCategory() {
+  if (floatingCategory) return floatingCategory;
+  floatingCategory = document.createElement("div");
+  floatingCategory.className = "floating-category-label";
+  floatingCategory.hidden = true;
+  floatingCategory.addEventListener("click", () => {
+    const categoryKey = floatingCategory.dataset.category;
+    if (!categoryKey) return;
+    const shouldCollapse = !collapsedCategories.has(categoryKey);
+    const nextCategoryKey = shouldCollapse ? getNextCategoryKey(categoryKey) : "";
+    if (shouldCollapse) collapsedCategories.add(categoryKey);
+    else collapsedCategories.delete(categoryKey);
+    renderFilteredResults();
+    if (shouldCollapse && nextCategoryKey) {
+      requestAnimationFrame(() => scrollCategoryIntoView(nextCategoryKey));
+    }
+  });
+  document.body.appendChild(floatingCategory);
+  return floatingCategory;
+}
+
+function updateFloatingCategory(wrapRect, headerHeight) {
+  if (!categoryColumn.dataset.index) {
+    hideFloatingCategory();
+    return;
+  }
+  const categoryRows = [...resultBody.querySelectorAll(".category-group-row")];
+  let activeRow = null;
+  const threshold = headerHeight + 1;
+  categoryRows.forEach((row) => {
+    const rect = row.getBoundingClientRect();
+    if (rect.top <= threshold) activeRow = row;
+  });
+  if (!activeRow) {
+    hideFloatingCategory();
+    return;
+  }
+  const sourceCell = activeRow.querySelector("td");
+  ensureFloatingCategory();
+  floatingCategory.innerHTML = sourceCell?.innerHTML ?? "";
+  floatingCategory.dataset.category = activeRow.dataset.category ?? "";
+  floatingCategory.hidden = false;
+  floatingCategory.style.left = `${wrapRect.left}px`;
+  floatingCategory.style.top = `${headerHeight}px`;
+  floatingCategory.style.width = `${wrapRect.width}px`;
+}
+
+function hideFloatingCategory() {
+  if (!floatingCategory) return;
+  floatingCategory.hidden = true;
+}
+
+function getNextCategoryKey(categoryKey) {
+  const categoryRows = [...resultBody.querySelectorAll(".category-group-row")];
+  const currentIndex = categoryRows.findIndex((row) => row.dataset.category === categoryKey);
+  if (currentIndex < 0) return "";
+  return categoryRows[currentIndex + 1]?.dataset.category ?? "";
+}
+
+function scrollCategoryIntoView(categoryKey) {
+  const nextRow = resultBody.querySelector(`.category-group-row[data-category="${cssEscape(categoryKey)}"]`);
+  if (!nextRow) return;
+  const headerHeight = floatingHeader?.hidden ? resultHeaderRow.getBoundingClientRect().height : floatingHeader.getBoundingClientRect().height;
+  const targetTop = nextRow.getBoundingClientRect().top + window.scrollY - headerHeight;
+  window.scrollTo({ top: Math.max(0, targetTop), behavior: "auto" });
+  updateFloatingResultHeader();
+}
+
+function cssEscape(value) {
+  if (window.CSS?.escape) return CSS.escape(value);
+  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
