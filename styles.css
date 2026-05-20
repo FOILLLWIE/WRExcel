@@ -1216,6 +1216,19 @@ th {
   width: 100% !important;
 }
 
+
+.expanded-results.single-extra-field.has-reward-fields .table-panel th.extra-column,
+.expanded-results.single-extra-field.has-reward-fields .table-panel td.extra-column {
+  width: 112px !important;
+  min-width: 112px !important;
+  max-width: 112px !important;
+}
+
+.expanded-results.single-extra-field.has-reward-fields .table-panel th:first-child,
+.expanded-results.single-extra-field.has-reward-fields .table-panel td:first-child {
+  width: 100% !important;
+}
+
 .resizable-column {
   position: relative;
   min-width: 180px;
@@ -1864,7 +1877,7 @@ th {
 }
 
 .dragging-result-row {
-  opacity: 0.48;
+  opacity: 1;
 }
 
 .drag-over-result-row td {
@@ -1895,11 +1908,20 @@ th {
 
 .grouped-product-separator {
   display: inline-block;
-  width: 1px;
-  height: 1.08em;
-  margin: 0 8px;
+  width: 2px;
+  height: 0.86em;
+  margin: 0 6px;
   border-radius: 999px;
-  background: currentColor;
+  background: #60605e;
   opacity: 0.48;
-  vertical-align: -0.14em;
+  vertical-align: -0.08em;
+}
+
+
+.copy-value:hover .grouped-product-separator,
+.selected-result-row .grouped-product-separator,
+.highlight-price-column .grouped-product-separator,
+.highlight-effective-price-column .grouped-product-separator {
+  background: currentColor;
+  opacity: 0.62;
 }
