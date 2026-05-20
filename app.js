@@ -560,6 +560,8 @@ function renderResults(payload) {
   currentRows = payload.rows;
   extraFields = payload.extra_fields ?? extraFields;
   rewardFields = payload.reward_fields ?? rewardFields;
+  resultSection.classList.toggle("single-extra-field", extraFields.length === 1);
+  resultSection.classList.toggle("multiple-extra-fields", extraFields.length > 1);
   productSearch.value = "";
   productNameFilters = [];
   renderProductFilterInputs();
