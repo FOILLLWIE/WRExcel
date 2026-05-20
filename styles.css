@@ -1047,7 +1047,7 @@ th {
   width: 124px;
   min-width: 124px;
   max-width: 124px;
-  padding-right: 14px;
+  padding-right: 13px;
 }
 
 .table-panel th[data-column="effective_price"] {
