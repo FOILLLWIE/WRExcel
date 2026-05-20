@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>할인금액 계산기</title>
-    <link rel="stylesheet" href="./styles.css?v=20260520-43" />
+    <link rel="stylesheet" href="./styles.css?v=20260520-46" />
   </head>
   <body>
     <main class="page-shell">
@@ -34,7 +34,7 @@
           <label><span>시작 행</span><input id="startRow" data-role="row-input" data-type="startRow" type="number" min="1" /></label>
           <label><span>끝 행</span><input id="endRow" data-role="row-input" data-type="endRow" type="number" min="1" /></label>
         </div>
-        <div class="selection-actions"><button id="calculateButton" data-role="action" data-action="calculate" class="primary-button" type="button">계산하기</button><label class="color-load-option"><input id="autoLoadColorFilters" data-role="option" data-group="mapping" data-option="autoLoadColorFilters" type="checkbox" /><span id="colorLoadOptionText">열 색상값 불러오기</span></label></div>
+        <div class="selection-actions"><button id="calculateButton" data-role="action" data-action="calculate" class="primary-button" type="button">계산하기</button><label class="color-load-option"><input id="autoLoadColorFilters" data-role="option" data-group="mapping" data-option="autoLoadColorFilters" type="checkbox" /><span id="colorLoadOptionText">열 색상값 불러오기</span></label><label class="color-load-option"><input id="groupSimilarProducts" data-role="option" data-group="mapping" data-option="groupSimilarProducts" type="checkbox" /><span>같은 상품 묶어보기</span></label></div>
         <section class="extra-fields-section"><div class="extra-fields-heading"><div><h3>추가 항목</h3><p>필요한 열을 더 만들어 상품별 결과에 함께 표시할 수 있습니다.</p></div><button id="addExtraFieldButton" data-role="action" data-action="add-extra-field" class="ghost-button" type="button">+ 추가 항목</button></div><div id="extraFieldsList" data-role="dynamic-fields-list" data-type="extra" class="extra-fields-list"></div></section>
         <section class="reward-fields-section"><div class="extra-fields-heading"><div><h3>적립금액</h3><p>적립금액 열을 추가하면 체감가까지 함께 계산합니다.</p></div><button id="addRewardFieldButton" data-role="action" data-action="add-reward-field" class="ghost-button" type="button">+ 적립금액</button></div><div id="rewardFieldsList" data-role="dynamic-fields-list" data-type="reward" class="extra-fields-list"></div></section>
         <div class="preview-help"><strong id="currentPickLabel" data-role="current-pick-label">제품명</strong> 입력칸이 선택되어 있습니다. 미리보기에서 해당 열의 아무 셀이나 클릭하세요.</div>
@@ -60,6 +60,6 @@
     </main>
     <div class="dialog-backdrop" data-role="dialog" data-dialog-type="confirm" hidden role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><div class="dialog-card"><h2 id="dialogTitle" data-role="dialog-title"></h2><p data-role="dialog-message"></p><div class="dialog-actions" data-role="dialog-actions"></div></div></div>
     <script src="./exceljs.min.js"></script>
-    <script src="./app.js?v=20260520-18"></script>
+    <script src="./app.js?v=20260520-21"></script>
   </body>
 </html>
