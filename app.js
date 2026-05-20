@@ -59,6 +59,7 @@ const showDiscountMinus = optionInput("showDiscountMinus");
 const highlightFinalPrices = optionInput("highlightFinalPrices");
 const titleCaseProductName = optionInput("titleCaseProductName");
 const autoLoadColorFilters = optionInput("autoLoadColorFilters");
+const groupSimilarProducts = optionInput("groupSimilarProducts");
 const colorLoadOptionText = autoLoadColorFilters?.closest("label")?.querySelector(".option-label");
 const sortField = selectInput("sortField");
 const sortDirection = selectInput("sortDirection");
@@ -291,6 +292,10 @@ titleCaseProductName.addEventListener("change", renderFilteredResults);
 autoLoadColorFilters.addEventListener("change", () => {
   if (autoLoadColorFilters.checked) loadAllColumnColors();
   else Object.keys(columnFilters).forEach(resetColumnColors);
+  queueSaveCurrentSettings();
+});
+groupSimilarProducts.addEventListener("change", () => {
+  renderFilteredResults();
   queueSaveCurrentSettings();
 });
 productNameResizer.addEventListener("pointerdown", startProductColumnResize);
@@ -647,7 +652,8 @@ function renderFilteredResults() {
       return sortDirection.value === "asc" ? diff : -diff;
     });
 
-  const groupedRows = categoryColumn.dataset.index ? groupRowsByCategory(rows) : [["", rows]];
+  const displayRows = groupSimilarProducts.checked && !isEditMode ? groupSimilarResultRows(rows) : rows;
+  const groupedRows = categoryColumn.dataset.index ? groupRowsByCategory(displayRows) : [["", displayRows]];
 
   groupedRows.forEach(([category, categoryRows]) => {
     const categoryKey = category || "미분류";
@@ -1272,6 +1278,95 @@ function columnLabel(index) {
   return label;
 }
 
+function groupSimilarResultRows(rows) {
+  const usedRowIds = new Set();
+  const result = [];
+  rows.forEach((row, index) => {
+    if (usedRowIds.has(row.row_id)) return;
+    const group = [row];
+    for (let nextIndex = index + 1; nextIndex < rows.length; nextIndex += 1) {
+      const candidate = rows[nextIndex];
+      if (usedRowIds.has(candidate.row_id)) continue;
+      if (!canGroupSimilarRows(row, candidate)) continue;
+      group.push(candidate);
+      usedRowIds.add(candidate.row_id);
+    }
+    if (group.length > 1) {
+      result.push({
+        ...row,
+        product_name: buildGroupedProductName(group.map((item) => displayProductName(item.product_name ?? ""))),
+        grouped_row_ids: group.map((item) => item.row_id),
+      });
+    } else {
+      result.push(row);
+    }
+    usedRowIds.add(row.row_id);
+  });
+  return result;
+}
+
+function canGroupSimilarRows(rowA, rowB) {
+  if ((rowA.category_name || "") !== (rowB.category_name || "")) return false;
+  if (buildResultSignature(rowA) !== buildResultSignature(rowB)) return false;
+  return Boolean(buildGroupedProductName([displayProductName(rowA.product_name ?? ""), displayProductName(rowB.product_name ?? "")]));
+}
+
+function buildResultSignature(row) {
+  const extraSignature = extraFields.map((field) => normalizeSignatureValue(row.extra_values?.[field.id])).join("|");
+  const rewardSignature = rewardFields.map((field) => normalizeSignatureValue(row.reward_values?.[field.id])).join("|");
+  return [
+    normalizeSignatureValue(row.original_price),
+    normalizeSignatureValue(row.discount_amount),
+    normalizeSignatureValue(row.total_discount_amount),
+    normalizeSignatureValue(row.discount_rate),
+    extraSignature,
+    rewardSignature,
+    normalizeSignatureValue(row.total_reward_amount),
+    normalizeSignatureValue(row.effective_price),
+  ].join("::");
+}
+
+function normalizeSignatureValue(value) {
+  if (value === null || value === undefined || value === "") return "0";
+  const cleaned = String(value).replace(/[^\d.-]/g, "");
+  const numeric = Number(cleaned || value);
+  return Number.isFinite(numeric) ? String(Math.round(numeric * 1000) / 1000) : String(value).trim();
+}
+
+function buildGroupedProductName(names) {
+  const cleanedNames = names.map((name) => String(name ?? "").replace(/\s+/g, " ").trim()).filter(Boolean);
+  if (cleanedNames.length < 2) return "";
+  const firstName = cleanedNames[0];
+  const commonPrefix = getCommonWordPrefix(cleanedNames);
+  if (!commonPrefix) return "";
+  const commonWords = commonPrefix.trim().split(/\s+/).filter(Boolean);
+  if (commonWords.length < 2) return "";
+  const rawSuffixes = cleanedNames.map((name) => name.slice(commonPrefix.length).trim());
+  const nonEmptySuffixes = rawSuffixes.filter(Boolean);
+  if (nonEmptySuffixes.length === 0) return "";
+  const maxSuffixLength = Math.max(...nonEmptySuffixes.map((suffix) => suffix.length));
+  const commonLength = commonPrefix.trim().length;
+  if (commonLength < 6 || maxSuffixLength > commonLength) return "";
+  if (rawSuffixes.some((suffix) => !suffix)) {
+    return `${commonPrefix.trim()} | ${nonEmptySuffixes.join(" | ")}`;
+  }
+  return `${firstName} | ${rawSuffixes.slice(1).join(" | ")}`;
+}
+
+function getCommonWordPrefix(names) {
+  const firstWords = names[0].split(" ");
+  let commonWords = [...firstWords];
+  names.slice(1).forEach((name) => {
+    const words = name.split(" ");
+    let count = 0;
+    while (count < commonWords.length && count < words.length && commonWords[count].toLowerCase() === words[count].toLowerCase()) {
+      count += 1;
+    }
+    commonWords = commonWords.slice(0, count);
+  });
+  return commonWords.join(" ");
+}
+
 function groupRowsByCategory(rows) {
   const groups = new Map();
   rows.forEach((row) => {
@@ -1646,6 +1741,7 @@ function buildCurrentSettingsData() {
       showWonSuffix: Boolean(showWonSuffix.checked),
       showDiscountMinus: Boolean(showDiscountMinus.checked),
       highlightFinalPrices: Boolean(highlightFinalPrices.checked),
+      groupSimilarProducts: Boolean(groupSimilarProducts.checked),
       productColor: columnFilters.product.selected,
       originalColor: columnFilters.original.selected,
       finalPriceColor: columnFilters.final.selected,
@@ -1698,6 +1794,7 @@ function normalizeStoredConfig(config) {
       show_won_suffix: config.options?.showWonSuffix,
       show_discount_minus: config.options?.showDiscountMinus,
       highlight_final_prices: config.options?.highlightFinalPrices,
+      group_similar_products: config.options?.groupSimilarProducts,
       extra_fields: config.extraFields ?? [],
       reward_fields: config.rewardFields ?? [],
     };
@@ -1722,6 +1819,7 @@ function restoreSettings(config) {
   if (normalizedConfig.show_won_suffix !== undefined) showWonSuffix.checked = Boolean(normalizedConfig.show_won_suffix);
   if (normalizedConfig.show_discount_minus !== undefined) showDiscountMinus.checked = Boolean(normalizedConfig.show_discount_minus);
   if (normalizedConfig.highlight_final_prices !== undefined) highlightFinalPrices.checked = Boolean(normalizedConfig.highlight_final_prices);
+  if (normalizedConfig.group_similar_products !== undefined) groupSimilarProducts.checked = Boolean(normalizedConfig.group_similar_products);
   syncTypedColumns();
   columnFilters.product.selected = normalizedConfig.product_color ?? "";
   columnFilters.original.selected = normalizedConfig.original_color ?? "";
