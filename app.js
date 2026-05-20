@@ -694,7 +694,7 @@ function renderFilteredResults() {
     const dragControl = isEditMode ? `<button class="row-drag-handle" type="button" draggable="true" data-drag-row="${escapeAttribute(row.row_id)}" aria-label="행 이동">⋮⋮</button>` : "";
     const deleteControl = isEditMode ? `<button class="row-delete-button" type="button" data-delete-row="${escapeAttribute(row.row_id)}" aria-label="행 삭제">×</button>` : "";
     tr.innerHTML = `
-      <td data-column="product_name"><div class="product-cell-content">${dragControl}${deleteControl}${buildCopyCell(displayProductName(row.product_name ?? ""))}</div></td>
+      <td data-column="product_name"><div class="product-cell-content">${dragControl}${deleteControl}${buildProductNameCopyCell(displayProductName(row.product_name ?? ""))}</div></td>
       <td data-column="original_price">${buildCopyCell(formatCurrency(row.original_price))}</td>
       <td data-column="discount_amount">${buildCopyCell(formatCurrency(row.discount_amount))}</td>
       ${extraCells}
@@ -799,10 +799,23 @@ async function finishRender(payload) {
   resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function buildCopyCell(value) {
-  const displayValue = escapeHtml(value);
+function buildCopyCell(value, displayHtml = null) {
+  const displayValue = displayHtml ?? escapeHtml(value);
   const copyValue = escapeAttribute(value);
-  return `<button class="copy-value" type="button" data-copy-value="${copyValue}">${displayValue}</button>`;
+  return `<button class="copy-value" type="button" data-copy-value="${copyValue}" aria-label="${copyValue}">${displayValue}</button>`;
+}
+
+function buildProductNameCopyCell(value) {
+  return buildCopyCell(value, buildGroupedProductDisplayHtml(value));
+}
+
+function buildGroupedProductDisplayHtml(value) {
+  const text = String(value ?? "");
+  if (!text.includes(GROUPED_PRODUCT_JOINER)) return escapeHtml(text);
+  return text
+    .split(GROUPED_PRODUCT_JOINER)
+    .map((part) => escapeHtml(part))
+    .join('<span class="grouped-product-separator" aria-hidden="true"></span>');
 }
 
 function setSortFieldToCustomOrder() {
