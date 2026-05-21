@@ -1,4 +1,4 @@
-const qs = (selector, root = document) => root.querySelector(selector);
+﻿const qs = (selector, root = document) => root.querySelector(selector);
 const qsa = (selector, root = document) => [...root.querySelectorAll(selector)];
 const byType = (type) => qs(`[data-type="${type}"]`);
 const columnField = (type) => qs(`.column-field[data-type="${type}"]`);
@@ -126,6 +126,9 @@ if (window.location.protocol === "file:") {
   setStatus("이 페이지는 파일로 직접 열려 있습니다. start.bat을 실행해 접속해주세요.", "error");
 }
 let productColumnWidth = null;
+let productColumnDragWidth = null;
+let appliedProductColumnWidth = null;
+let appliedResultColumnWidths = [];
 
 initializeCustomSelects();
 cleanupStoredSettings();
@@ -232,7 +235,7 @@ resultSection.addEventListener("click", (event) => {
   const isInteractive = event.target.closest("button, input, select, textarea, [data-role='select'], [data-role='select-menu']");
   if (isResultRow || isInteractive) return;
   selectedRowId = null;
-  renderFilteredResults();
+  updateSelectedResultRow();
 });
 productFilterButton.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -276,6 +279,7 @@ visibleColumnsPanel.querySelectorAll("[data-visible-column]").forEach((checkbox)
     if (checkbox.checked) hiddenColumns.delete(column);
     else hiddenColumns.add(column);
     applyVisibleColumns();
+    updateFloatingResultHeader();
   });
 });
 showWonSuffix.addEventListener("change", () => {
@@ -349,6 +353,7 @@ expandResultsButton.addEventListener("click", () => {
   resultSection.classList.toggle("expanded-results");
   const expanded = resultSection.classList.contains("expanded-results");
   expandResultsButton.textContent = expanded ? "축소" : "확장";
+  scheduleResultColumnLayoutSync();
 });
 Object.values(columnFilters).forEach((filter) => {
   filter.trigger.addEventListener("click", () => {
@@ -637,8 +642,22 @@ function renderResults(payload) {
   sortDirection.value = "desc";
   syncCustomSelect(sortField);
   syncCustomSelect(sortDirection);
-  renderFilteredResults();
   setElementHidden(resultSection, false);
+  renderFilteredResults();
+  refreshResultLayoutAfterRender();
+}
+
+function refreshResultLayoutAfterRender() {
+  normalizeInitialExtraTableWidth();
+  requestAnimationFrame(() => {
+    normalizeInitialExtraTableWidth();
+    applyProductColumnWidth();
+    updateFloatingResultHeader();
+    requestAnimationFrame(() => {
+      applyProductColumnWidth();
+      updateFloatingResultHeader();
+    });
+  });
 }
 
 function renderFilteredResults() {
@@ -665,7 +684,7 @@ function renderFilteredResults() {
       groupRow.className = `category-group-row${isCollapsed ? " collapsed" : ""}`;
       groupRow.dataset.category = categoryKey;
       groupRow.innerHTML = `
-        <td colspan="${7 + extraFields.length + rewardFields.length}">
+        <td colspan="${getResultColumnSpan()}">
           <button class="category-toggle" type="button" aria-expanded="${!isCollapsed}">
             <span class="category-caret">${isCollapsed ? ">" : "⌄"}</span>
             <span>${escapeHtml(categoryKey)}</span>
@@ -717,8 +736,8 @@ function renderFilteredResults() {
           return;
         }
         selectedRowId = String(row.row_id);
+        updateSelectedResultRow();
         await copyText(event.currentTarget.dataset.copyValue);
-        renderFilteredResults();
       });
     });
     tr.querySelector("[data-delete-row]")?.addEventListener("click", (event) => {
@@ -762,19 +781,44 @@ function renderFilteredResults() {
       if (isEditMode) return;
       if (!selectedRowId) return;
       selectedRowId = null;
-      renderFilteredResults();
+      updateSelectedResultRow();
     });
       resultBody.appendChild(tr);
     });
   });
-  applyProductColumnWidth();
   renderExtraResultHeaders();
   renderRewardResultHeaders();
   applyRewardColumnVisibility();
   applyVisibleColumns();
   applyPriceHighlighting();
-  updateFloatingResultHeader();
+  applyProductColumnWidth();
   setElementHidden(emptyResultMessage, rows.length > 0);
+  normalizeInitialExtraTableWidth();
+}
+
+function normalizeInitialExtraTableWidth() {
+  if (productColumnWidth !== null || extraFields.length === 0 || resultSection.hidden) return;
+  requestAnimationFrame(() => {
+    if (productColumnWidth !== null || extraFields.length === 0 || resultSection.hidden) return;
+    const table = tableWrap?.querySelector("table");
+    const productWidth = Math.ceil(productNameHeader.getBoundingClientRect().width || 0);
+    if (!table || productWidth <= 0) return;
+    productColumnWidth = productWidth;
+    productColumnDragWidth = productWidth;
+    applyProductColumnWidth();
+  });
+}
+
+function getResultColumnSpan() {
+  const baseColumns = 5;
+  const rewardColumns = rewardFields.length > 0 ? rewardFields.length + 2 : 0;
+  return baseColumns + extraFields.length + rewardColumns;
+}
+
+function updateSelectedResultRow() {
+  resultBody.querySelectorAll("tr[data-row-id]").forEach((row) => {
+    row.classList.toggle("selected-result-row", String(row.dataset.rowId) === String(selectedRowId));
+  });
 }
 
 function applyRewardColumnVisibility() {
@@ -2172,6 +2216,7 @@ function renderExtraResultHeaders() {
       if (checkbox.checked) hiddenColumns.delete(column);
       else hiddenColumns.add(column);
       applyVisibleColumns();
+      updateFloatingResultHeader();
     });
     panel.insertBefore(label, rewardStartLabel);
   });
@@ -2306,6 +2351,7 @@ function renderRewardResultHeaders() {
       if (checkbox.checked) hiddenColumns.delete(column);
       else hiddenColumns.add(column);
       applyVisibleColumns();
+      updateFloatingResultHeader();
     });
     panel.insertBefore(label, totalRewardLabel);
   });
@@ -2458,6 +2504,7 @@ function setStatus(message, type) {
 }
 
 function hideResults() {
+  productColumnDragWidth = null;
   setElementHidden(resultSection, true);
 }
 
@@ -2711,10 +2758,15 @@ async function copyText(text) {
 function startProductColumnResize(event) {
   event.preventDefault();
   const startX = event.clientX;
-  const startWidth = productNameHeader.getBoundingClientRect().width;
+  const visualStartWidth = productNameHeader.getBoundingClientRect().width;
+  const startWidth = productColumnDragWidth ?? productColumnWidth ?? visualStartWidth;
+  const fillGap = Math.max(0, visualStartWidth - startWidth);
+  const maxWidth = getMaxProductColumnWidth();
 
   function onPointerMove(moveEvent) {
-    productColumnWidth = Math.max(180, startWidth + moveEvent.clientX - startX);
+    const visualTargetWidth = visualStartWidth + moveEvent.clientX - startX;
+    productColumnDragWidth = clampProductColumnWidth(visualTargetWidth - fillGap, maxWidth);
+    productColumnWidth = productColumnDragWidth;
     applyProductColumnWidth();
   }
 
@@ -2727,23 +2779,153 @@ function startProductColumnResize(event) {
   window.addEventListener("pointerup", onPointerUp);
 }
 
-function applyProductColumnWidth() {
-  if (productColumnWidth === null) {
-    productNameHeader.style.removeProperty("width");
-  } else {
-    productNameHeader.style.width = `${productColumnWidth}px`;
+function clampProductColumnWidth(width, maxWidth = getMaxProductColumnWidth()) {
+  return Math.max(getMinProductColumnWidth(), Math.min(Math.round(width), maxWidth));
+}
+
+function getMinProductColumnWidth() {
+  const table = tableWrap?.querySelector("table");
+  const availableWidth = tableWrap?.clientWidth || 0;
+  if (!table || !availableWidth) return 180;
+  const otherColumnsWidth = getVisibleResultHeaders()
+    .filter((header) => header.dataset.column !== "product_name")
+    .reduce((sum, header) => sum + getResultColumnPixelWidth(header), 0);
+  return Math.max(180, Math.ceil(availableWidth - otherColumnsWidth));
+}
+
+function getMaxProductColumnWidth() {
+  return Math.max(260, Math.ceil(measureMaxProductNameWidth()));
+}
+
+function scheduleResultColumnLayoutSync() {
+  if (resultSection.hidden) {
+    updateFloatingResultHeader();
+    return;
   }
-  resultBody.querySelectorAll("tr").forEach((row) => {
-    if (!row.children[0]) return;
-    if (productColumnWidth === null) {
-      row.children[0].style.removeProperty("width");
-      row.children[0].style.removeProperty("max-width");
-      return;
-    }
-    row.children[0].style.width = `${productColumnWidth}px`;
-    row.children[0].style.maxWidth = `${productColumnWidth}px`;
+  requestAnimationFrame(() => applyProductColumnWidth());
+}
+
+function measureMaxProductNameWidth() {
+  const measuringElement = document.createElement("span");
+  measuringElement.className = "product-width-measurer";
+  const sampleButton = resultBody.querySelector('[data-column="product_name"] .copy-value') ?? productNameHeader;
+  const computedStyle = window.getComputedStyle(sampleButton);
+  measuringElement.style.font = computedStyle.font;
+  measuringElement.style.fontWeight = computedStyle.fontWeight;
+  document.body.appendChild(measuringElement);
+
+  const names = currentRows.length > 0
+    ? currentRows.map((row) => displayProductName(row.product_name ?? ""))
+    : [productNameHeader.textContent ?? "???"];
+  const maxTextWidth = names.reduce((maxWidth, name) => {
+    measuringElement.textContent = name;
+    return Math.max(maxWidth, measuringElement.getBoundingClientRect().width);
+  }, 0);
+  measuringElement.remove();
+
+  const editControlsWidth = isEditMode ? 58 : 0;
+  return maxTextWidth + editControlsWidth + 44;
+}
+
+function applyProductColumnWidth() {
+  const productCells = [
+    productNameHeader,
+    ...resultBody.querySelectorAll('tr[data-row-id] > td[data-column="product_name"]'),
+  ].filter(Boolean);
+
+  if (productColumnWidth === null) {
+    appliedProductColumnWidth = null;
+    appliedResultColumnWidths = [];
+    productCells.forEach((cell) => {
+      cell.style.removeProperty("width");
+      cell.style.removeProperty("min-width");
+      cell.style.removeProperty("max-width");
+    });
+    syncResultColumnWidths();
+    updateFloatingResultHeader();
+    return;
+  }
+
+  productColumnWidth = clampProductColumnWidth(productColumnWidth);
+  productCells.forEach((cell) => {
+    cell.style.width = `${productColumnWidth}px`;
+    cell.style.minWidth = `${productColumnWidth}px`;
+    cell.style.maxWidth = `${productColumnWidth}px`;
+  });
+
+  syncResultColumnWidths();
+
+  const visualProductWidth = appliedProductColumnWidth ?? productColumnWidth;
+  productCells.forEach((cell) => {
+    cell.style.width = `${visualProductWidth}px`;
+    cell.style.minWidth = `${visualProductWidth}px`;
+    cell.style.maxWidth = `${visualProductWidth}px`;
   });
   updateFloatingResultHeader();
+}
+
+function getVisibleResultHeaders() {
+  return [...resultHeaderRow.querySelectorAll("th[data-column]")]
+    .filter((header) => !header.classList.contains("hidden-result-column"));
+}
+
+function syncResultColumnWidths() {
+  const table = tableWrap?.querySelector("table");
+  if (!table) return;
+  let colgroup = table.querySelector("colgroup[data-role='result-colgroup']");
+
+  if (productColumnWidth === null) {
+    colgroup?.remove();
+    appliedProductColumnWidth = null;
+    appliedResultColumnWidths = [];
+    table.style.removeProperty("width");
+    table.style.removeProperty("min-width");
+    table.style.removeProperty("table-layout");
+    return;
+  }
+
+  if (!colgroup) {
+    colgroup = document.createElement("colgroup");
+    colgroup.dataset.role = "result-colgroup";
+    table.prepend(colgroup);
+  }
+  colgroup.innerHTML = "";
+
+  const headers = getVisibleResultHeaders();
+  const computedWidths = headers.map((header) => getResultColumnPixelWidth(header));
+  const productIndex = headers.findIndex((header) => header.dataset.column === "product_name");
+  const availableWidth = tableWrap?.clientWidth || 0;
+  const totalBeforeFill = computedWidths.reduce((sum, width) => sum + width, 0);
+  if (productIndex >= 0 && availableWidth > totalBeforeFill) {
+    computedWidths[productIndex] += availableWidth - totalBeforeFill;
+  }
+  appliedResultColumnWidths = computedWidths;
+  appliedProductColumnWidth = productIndex >= 0 ? computedWidths[productIndex] : productColumnWidth;
+
+  let totalWidth = 0;
+  computedWidths.forEach((width) => {
+    const col = document.createElement("col");
+    col.style.width = `${width}px`;
+    totalWidth += width;
+    colgroup.appendChild(col);
+  });
+  table.style.width = `${totalWidth}px`;
+  table.style.minWidth = `${totalWidth}px`;
+}
+
+function getResultColumnPixelWidth(header) {
+  const column = header.dataset.column;
+  if (column === "product_name") return productColumnWidth ?? Math.ceil(header.getBoundingClientRect().width);
+  if (column?.startsWith("extra_") && extraFields.length === 1) return 112;
+
+  const cells = column ? [...resultBody.querySelectorAll(`td[data-column="${cssEscape(column)}"]`)] : [];
+  const cellContentWidths = cells.map((cell) => {
+    const content = cell.querySelector(".copy-value") ?? cell;
+    return Math.ceil(content.scrollWidth || content.getBoundingClientRect().width || 0);
+  });
+  const headerWidth = Math.ceil(header.scrollWidth || header.getBoundingClientRect().width || 0);
+  const contentWidth = Math.max(headerWidth, ...cellContentWidths, 72);
+  return contentWidth + 8;
 }
 
 function ensureFloatingResultHeader() {
@@ -2782,18 +2964,25 @@ function updateFloatingResultHeader() {
   ensureFloatingResultHeader();
   const clonedHead = document.createElement("thead");
   const clonedRow = resultHeaderRow.cloneNode(true);
-  [...resultHeaderRow.children].forEach((sourceCell, index) => {
-    const clonedCell = clonedRow.children[index];
+  getVisibleResultHeaders().forEach((sourceCell) => {
+    const clonedCell = clonedRow.querySelector(`th[data-column="${cssEscape(sourceCell.dataset.column)}"]`);
     if (!clonedCell) return;
     const width = sourceCell.getBoundingClientRect().width;
     clonedCell.style.width = `${width}px`;
     clonedCell.style.minWidth = `${width}px`;
     clonedCell.style.maxWidth = `${width}px`;
   });
+  const floatingProductResizer = clonedRow.querySelector('[data-role="product-name-resizer"]');
+  if (floatingProductResizer) {
+    floatingProductResizer.removeAttribute("id");
+    floatingProductResizer.addEventListener("pointerdown", startProductColumnResize);
+  }
   clonedHead.appendChild(clonedRow);
   floatingHeaderTable.innerHTML = "";
   floatingHeaderTable.appendChild(clonedHead);
   floatingHeaderTable.style.width = `${table.scrollWidth}px`;
+  floatingHeaderTable.style.minWidth = `${table.scrollWidth}px`;
+  floatingHeaderTable.style.removeProperty("table-layout");
   floatingHeaderTable.style.transform = `translateX(${-tableWrap.scrollLeft}px)`;
 
   floatingHeader.hidden = false;
@@ -2880,3 +3069,4 @@ function cssEscape(value) {
   if (window.CSS?.escape) return CSS.escape(value);
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
+

@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color-scheme: light;
   --bg: #f6f2ea;
   --panel: rgba(255, 255, 255, 0.86);
@@ -965,6 +965,10 @@ h1 {
   text-align: center;
 }
 
+.floating-result-header th[data-column="product_name"] {
+  text-align: center;
+}
+
 .floating-result-header th.extra-column {
   background: #f5eee7;
 }
@@ -1199,9 +1203,9 @@ th {
 
 .single-extra-field .table-panel th.extra-column,
 .single-extra-field .table-panel td.extra-column {
-  width: 112px;
-  min-width: 112px;
-  max-width: 112px;
+  width: 112px !important;
+  min-width: 112px !important;
+  max-width: 112px !important;
 }
 
 .expanded-results.single-extra-field.no-reward-fields .table-panel th.extra-column,
@@ -1310,12 +1314,11 @@ th {
 
 .table-panel thead th.extra-column {
   background: #f5eee7;
-  background-clip: padding-box;
+  background-clip: border-box;
   border-bottom: 0;
-  box-shadow:
-    inset 0 -1px 0 rgba(154, 91, 42, 0.24),
-    -1px 0 0 #f5eee7,
-    1px 0 0 #f5eee7;
+  border-left: 0;
+  border-right: 0;
+  box-shadow: inset 0 -1px 0 rgba(154, 91, 42, 0.24);
 }
 
 .table-panel thead th.reward-column {
@@ -1925,3 +1928,58 @@ th {
   background: currentColor;
   opacity: 0.62;
 }
+
+
+.floating-result-header .resizable-column,
+.floating-result-header .column-resizer {
+  pointer-events: auto;
+}
+
+.floating-result-header .column-resizer {
+  cursor: col-resize;
+}
+
+
+.floating-result-header th.extra-column,
+.floating-result-header th.extra-column + th.extra-column {
+  background-clip: border-box;
+  border-left: 0;
+  border-right: 0;
+}
+
+
+.single-extra-field .table-panel th.extra-column,
+.single-extra-field .table-panel td.extra-column,
+.expanded-results.single-extra-field .table-panel th.extra-column,
+.expanded-results.single-extra-field .table-panel td.extra-column {
+  width: 112px !important;
+  min-width: 112px !important;
+  max-width: 112px !important;
+}
+
+
+
+.single-extra-field .table-panel th.extra-column,
+.single-extra-field .table-panel td.extra-column,
+.expanded-results.single-extra-field .table-panel th.extra-column,
+.expanded-results.single-extra-field .table-panel td.extra-column {
+  width: 112px !important;
+  min-width: 112px !important;
+  max-width: 112px !important;
+}
+
+
+.product-width-measurer {
+  position: fixed;
+  left: -99999px;
+  top: -99999px;
+  white-space: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.table-panel colgroup col {
+  min-width: 0;
+}
+
+
