@@ -156,6 +156,9 @@ fileInput.addEventListener("change", async (event) => {
   setStatus("엑셀 내용을 읽고 있습니다...", "success");
   try {
     workbookPreview = await postFile("/api/inspect");
+    if (!workbookPreview.sheets?.length) {
+      throw new Error("이 파일은 구형 .xls 형식이라 바로 읽을 수 없습니다. Excel에서 .xlsx 형식으로 다시 저장한 뒤 업로드해주세요.");
+    }
     populateSheetSelect(workbookPreview.sheets);
     renderSheet(workbookPreview.sheets[0].name);
     setElementHidden(mappingSection, false);
@@ -959,6 +962,9 @@ function escapeAttribute(value) {
 
 async function getExcelWorkbook() {
   if (excelWorkbook) return excelWorkbook;
+  if (isLegacyXlsFile(uploadedFile)) {
+    throw new Error("이 파일은 구형 .xls 형식이라 바로 읽을 수 없습니다. Excel에서 .xlsx 형식으로 다시 저장한 뒤 업로드해주세요.");
+  }
   if (!window.ExcelJS) {
     throw new Error("엑셀 처리 모듈을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 열어주세요.");
   }
@@ -1802,6 +1808,11 @@ function validateExtraFields() {
 
 function serializeRewardFields() {
   return rewardFields.map((field) => ({ ...field }));
+}
+
+function isLegacyXlsFile(file) {
+  const name = String(file?.name ?? "").toLowerCase();
+  return name.endsWith(".xls") && !name.endsWith(".xlsx");
 }
 
 function createFileKey(file) {
@@ -3069,4 +3080,6 @@ function cssEscape(value) {
   if (window.CSS?.escape) return CSS.escape(value);
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
+
+
 
