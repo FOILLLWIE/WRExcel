@@ -813,9 +813,14 @@ function normalizeInitialExtraTableWidth() {
 }
 
 function getResultColumnSpan() {
-  const baseColumns = 5;
-  const rewardColumns = rewardFields.length > 0 ? rewardFields.length + 2 : 0;
-  return baseColumns + extraFields.length + rewardColumns;
+  const baseColumns = ["product_name", "original_price", "discount_amount", "total_discount_amount", "discount_rate"]
+    .filter((column) => !hiddenColumns.has(column)).length;
+  const extraColumns = extraFields.filter((field) => !hiddenColumns.has(`extra_${field.id}`)).length;
+  const rewardColumns = rewardFields.length > 0
+    ? rewardFields.filter((field) => !hiddenColumns.has(`reward_${field.id}`)).length
+      + ["total_reward_amount", "effective_price"].filter((column) => !hiddenColumns.has(column)).length
+    : 0;
+  return Math.max(1, baseColumns + extraColumns + rewardColumns);
 }
 
 function updateSelectedResultRow() {
@@ -1575,11 +1580,23 @@ function applyVisibleColumns() {
   });
   resultBody.querySelectorAll("tr").forEach((row) => {
     const firstCell = row.children[0];
-    if (firstCell && !row.classList.contains("category-group-row")) {
+    if (row.classList.contains("category-group-row")) {
+      firstCell?.setAttribute("colspan", String(getResultColumnSpan()));
+    } else if (firstCell) {
       firstCell.classList.toggle("hidden-result-column", hiddenColumns.has("product_name"));
     }
   });
   applyRewardColumnVisibility();
+  refreshResultColumnLayout();
+}
+
+function refreshResultColumnLayout() {
+  applyProductColumnWidth();
+  updateFloatingResultHeader();
+  requestAnimationFrame(() => {
+    applyProductColumnWidth();
+    updateFloatingResultHeader();
+  });
 }
 
 function applyPriceHighlighting() {
@@ -3036,10 +3053,10 @@ function updateFloatingCategory(wrapRect, headerHeight) {
   }
   const categoryRows = [...resultBody.querySelectorAll(".category-group-row")];
   let activeRow = null;
-  const threshold = headerHeight + 1;
   categoryRows.forEach((row) => {
     const rect = row.getBoundingClientRect();
-    if (rect.top <= threshold) activeRow = row;
+    const activationLine = headerHeight + rect.height * 0.5;
+    if (rect.top <= activationLine) activeRow = row;
   });
   if (!activeRow) {
     hideFloatingCategory();
@@ -3080,6 +3097,9 @@ function cssEscape(value) {
   if (window.CSS?.escape) return CSS.escape(value);
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
+
+
+
 
 
 
