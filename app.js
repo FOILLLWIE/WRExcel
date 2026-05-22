@@ -643,6 +643,7 @@ function renderResults(payload) {
   renderProductFilterInputs();
   sortField.value = "none";
   sortDirection.value = "desc";
+  removeCustomSortOption();
   syncCustomSelect(sortField);
   syncCustomSelect(sortDirection);
   setElementHidden(resultSection, false);
@@ -870,12 +871,18 @@ function buildGroupedProductDisplayHtml(value) {
     .join('<span class="grouped-product-separator" aria-hidden="true"></span>');
 }
 
+function removeCustomSortOption() {
+  if (sortField.value === "custom") sortField.value = "none";
+  [...sortField.options].forEach((option) => {
+    if (option.value === "custom") option.remove();
+  });
+}
 function setSortFieldToCustomOrder() {
   if (![...sortField.options].some((option) => option.value === "custom")) {
     const option = document.createElement("option");
     option.value = "custom";
     option.textContent = "사용자 설정";
-    sortField.insertBefore(option, sortField.options[1] ?? null);
+    sortField.appendChild(option);
   }
   sortField.value = "custom";
   syncCustomSelect(sortField);
@@ -3188,6 +3195,8 @@ function cssEscape(value) {
   if (window.CSS?.escape) return CSS.escape(value);
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
+
+
 
 
 
