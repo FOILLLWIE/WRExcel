@@ -1832,8 +1832,12 @@ function isLegacyXlsFile(file) {
   return name.endsWith(".xls") && !name.endsWith(".xlsx");
 }
 
+function createFileSignature(file) {
+  return `${file.name}_${file.size}`;
+}
+
 function createFileKey(file) {
-  return `${file.name}_${file.size}_${file.lastModified}`;
+  return `${createFileSignature(file)}_${file.lastModified}`;
 }
 
 function getColumnLetterFromInput(input) {
@@ -1845,7 +1849,10 @@ function buildCurrentSettingsData() {
   if (!uploadedFile || !currentFileKey) return null;
   return {
     fileKey: currentFileKey,
+    fileSignature: createFileSignature(uploadedFile),
     fileName: uploadedFile.name,
+    fileSize: uploadedFile.size,
+    fileLastModified: uploadedFile.lastModified,
     savedAt: Date.now(),
     sheetName: sheetSelect.value,
     mapping: {
@@ -2032,9 +2039,49 @@ async function withSettingsStore(mode, callback) {
   });
 }
 
+async function requestServerSettings(path, payload = null) {
+  if (!/^https?:$/.test(location.protocol)) return null;
+  try {
+    const response = await fetch(path, payload
+      ? {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+      : { method: "GET" });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function saveServerFileSettings(fileKey, data) {
+  if (!fileKey || !data) return;
+  await requestServerSettings("/api/settings/save", { fileKey, data: { ...data, fileKey } });
+}
+
+async function loadServerFileSettings(fileKey) {
+  if (!fileKey) return null;
+  const result = await requestServerSettings(`/api/settings/load?file_key=${encodeURIComponent(fileKey)}`);
+  return result?.settings ?? null;
+}
+
+async function loadLatestServerSettingsByName(fileName) {
+  if (!fileName) return null;
+  const result = await requestServerSettings(`/api/settings/latest?file_name=${encodeURIComponent(fileName)}`);
+  return result?.settings ?? null;
+}
+
+async function deleteServerFileSettings(fileKey) {
+  if (!fileKey) return;
+  await requestServerSettings("/api/settings/delete", { fileKey });
+}
+
 async function saveFileSettings(fileKey, data) {
   if (!fileKey || !data) return;
   saveLocalFileSettings(fileKey, data);
+  saveServerFileSettings(fileKey, data).catch(() => {});
   try {
     const saved = await withSettingsStore("readwrite", (store) => {
       store.put({ ...data, fileKey });
@@ -2048,12 +2095,45 @@ async function saveFileSettings(fileKey, data) {
 async function loadSettingsForUploadedFile(file) {
   const exact = await loadFileSettings(createFileKey(file));
   if (exact) return exact;
+  const sameSignature = await loadLatestFileSettingsBySignature(createFileSignature(file));
+  if (sameSignature) return sameSignature;
   return loadLatestFileSettingsByName(file.name);
 }
 
+async function loadLatestFileSettingsBySignature(fileSignature) {
+  if (!fileSignature) return null;
+  const localLatest = loadLatestLocalSettingsBySignature(fileSignature);
+  try {
+    const result = await withSettingsStore("readonly", (store, done) => {
+      const request = store.openCursor();
+      let latest = null;
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          done(latest);
+          return;
+        }
+        const value = cursor.value;
+        if (value?.fileSignature === fileSignature && (!latest || (value.savedAt ?? 0) > (latest.savedAt ?? 0))) {
+          latest = value;
+        }
+        cursor.continue();
+      };
+      request.onerror = () => done(null);
+    });
+    return pickLatestSettings(result, localLatest);
+  } catch {
+    let latest = null;
+    fallbackSettingsStore.forEach((value) => {
+      if (value?.fileSignature === fileSignature && (!latest || (value.savedAt ?? 0) > (latest.savedAt ?? 0))) latest = value;
+    });
+    return pickLatestSettings(latest, localLatest);
+  }
+}
 async function loadLatestFileSettingsByName(fileName) {
   if (!fileName) return null;
   const localLatest = loadLatestLocalSettingsByName(fileName);
+  const serverLatest = await loadLatestServerSettingsByName(fileName);
   try {
     const result = await withSettingsStore("readonly", (store, done) => {
       const request = store.openCursor();
@@ -2072,18 +2152,20 @@ async function loadLatestFileSettingsByName(fileName) {
       };
       request.onerror = () => done(null);
     });
-    return pickLatestSettings(result, localLatest);
+    return pickLatestSettings(result, localLatest, serverLatest);
   } catch {
     let latest = null;
     fallbackSettingsStore.forEach((value) => {
       if (value?.fileName === fileName && (!latest || (value.savedAt ?? 0) > (latest.savedAt ?? 0))) latest = value;
     });
-    return pickLatestSettings(latest, localLatest);
+    return pickLatestSettings(latest, localLatest, serverLatest);
   }
 }
 
 async function loadFileSettings(fileKey) {
   if (!fileKey) return null;
+  const server = await loadServerFileSettings(fileKey);
+  if (server) return server;
   const local = loadLocalFileSettings(fileKey);
   try {
     const result = await withSettingsStore("readonly", (store, done) => {
@@ -2101,6 +2183,7 @@ async function deleteFileSettings(fileKey) {
   if (!fileKey) return;
   fallbackSettingsStore.delete(fileKey);
   deleteLocalFileSettings(fileKey);
+  deleteServerFileSettings(fileKey).catch(() => {});
   try {
     await withSettingsStore("readwrite", (store) => {
       store.delete(fileKey);
@@ -2163,6 +2246,14 @@ function deleteLocalFileSettings(fileKey) {
   writeLocalSettingsMap(map);
 }
 
+function loadLatestLocalSettingsBySignature(fileSignature) {
+  const values = Object.values(readLocalSettingsMap());
+  return values.reduce((latest, value) => {
+    if (value?.fileSignature !== fileSignature) return latest;
+    if (!latest || (value.savedAt ?? 0) > (latest.savedAt ?? 0)) return value;
+    return latest;
+  }, null);
+}
 function loadLatestLocalSettingsByName(fileName) {
   const values = Object.values(readLocalSettingsMap());
   return values.reduce((latest, value) => {
@@ -3097,6 +3188,12 @@ function cssEscape(value) {
   if (window.CSS?.escape) return CSS.escape(value);
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
+
+
+
+
+
+
 
 
 
