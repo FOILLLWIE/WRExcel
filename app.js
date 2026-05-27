@@ -95,7 +95,10 @@ let rewardFields = [];
 const collapsedCategories = new Set();
 let activeExtraFieldTarget = null;
 let pendingRestoreConfig = null;
+let activeFileSettingsConfig = null;
+let activeResultSnapshotConfig = null;
 let currentFileKey = "";
+let currentFileContentHash = "";
 let settingsSaveTimer = null;
 let floatingHeader = null;
 let floatingHeaderTable = null;
@@ -110,6 +113,7 @@ const DB_VERSION = 1;
 const SETTINGS_STORE_NAME = "fileSettings";
 const SETTINGS_RETENTION_DAYS = 30;
 const LOCAL_SETTINGS_KEY = "discountCalculatorFileSettingsV1";
+const LAST_SETTINGS_KEY = "WRExcelLastFileSettings";
 const fallbackSettingsStore = new Map();
 const extraFieldNameSuggestions = ["선택쿠폰", "중복쿠폰", "카드할인"];
 const GROUPED_PRODUCT_SEPARATOR = "\uFF5C";
@@ -147,6 +151,9 @@ fileInput.addEventListener("change", async (event) => {
   if (!file) return;
   uploadedFile = file;
   currentFileKey = createFileKey(file);
+  currentFileContentHash = await createFileContentHash(file);
+  activeFileSettingsConfig = null;
+  activeResultSnapshotConfig = null;
   fileDrop.classList.add("uploaded");
   hideResults();
   extraFields = [];
@@ -165,6 +172,8 @@ fileInput.addEventListener("change", async (event) => {
     const savedConfig = await loadSettingsForUploadedFile(file);
     if (savedConfig) {
       pendingRestoreConfig = savedConfig;
+      activeFileSettingsConfig = savedConfig;
+      if (hasMatchingResultSnapshot(savedConfig)) activeResultSnapshotConfig = savedConfig;
       showRestoreDialog();
     }
     setStatus("파일을 읽었습니다. 계산에 사용할 위치를 선택하세요.", "success");
@@ -193,6 +202,11 @@ calculateButton.addEventListener("click", async () => {
   const extraFieldValidationMessage = validateExtraFields();
   if (extraFieldValidationMessage) {
     showMessageDialog(extraFieldValidationMessage);
+    return;
+  }
+  if (restoreResultSnapshotIfSameFile(activeResultSnapshotConfig ?? activeFileSettingsConfig)) {
+    queueSaveCurrentSettings();
+    resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
   try {
@@ -250,20 +264,23 @@ productFilterPanel.addEventListener("click", (event) => {
 addProductFilterButton.addEventListener("click", () => {
   productNameFilters.push("");
   renderProductFilterInputs();
+  queueSaveCurrentSettings();
 });
-removeParenthesesText.addEventListener("change", renderFilteredResults);
-removeBracketsText.addEventListener("change", renderFilteredResults);
-removeTrailingModelCode.addEventListener("change", renderFilteredResults);
+removeParenthesesText.addEventListener("change", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
+removeBracketsText.addEventListener("change", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
+removeTrailingModelCode.addEventListener("change", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
 removeAfterDelimiter.addEventListener("change", () => {
   setElementHidden(delimiterOptions, !removeAfterDelimiter.checked);
   renderFilteredResults();
+  queueSaveCurrentSettings();
 });
 removeLeadingText.addEventListener("change", () => {
   setElementHidden(leadingTextOptions, !removeLeadingText.checked);
   renderFilteredResults();
+  queueSaveCurrentSettings();
 });
-leadingTextValue.addEventListener("input", renderFilteredResults);
-delimiterValue.addEventListener("input", renderFilteredResults);
+leadingTextValue.addEventListener("input", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
+delimiterValue.addEventListener("input", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".search-with-filter")) {
     setElementHidden(productFilterPanel, true);
@@ -297,7 +314,7 @@ highlightFinalPrices.addEventListener("change", () => {
   applyPriceHighlighting();
   queueSaveCurrentSettings();
 });
-titleCaseProductName.addEventListener("change", renderFilteredResults);
+titleCaseProductName.addEventListener("change", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
 autoLoadColorFilters.addEventListener("change", () => {
   if (autoLoadColorFilters.checked) loadAllColumnColors();
   else Object.keys(columnFilters).forEach(resetColumnColors);
@@ -639,7 +656,6 @@ function renderResults(payload) {
   resultSection.classList.toggle("no-reward-fields", rewardFields.length === 0);
   resultSection.classList.toggle("has-reward-fields", rewardFields.length > 0);
   productSearch.value = "";
-  productNameFilters = [];
   renderProductFilterInputs();
   sortField.value = "none";
   sortDirection.value = "desc";
@@ -1862,19 +1878,61 @@ function createFileKey(file) {
   return `${createFileSignature(file)}_${file.lastModified}`;
 }
 
+async function createFileContentHash(file) {
+  if (!file?.arrayBuffer || !window.crypto?.subtle) return "";
+  try {
+    const buffer = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return "";
+  }
+}
+
 function getColumnLetterFromInput(input) {
   const parsed = normalizeColumnIndexValue(input.dataset.index ?? input.value);
   return parsed === null ? "" : columnLabel(parsed);
 }
 
+function getProductCleanupOptions() {
+  return {
+    filters: [...productNameFilters],
+    removeParenthesesText: Boolean(removeParenthesesText.checked),
+    removeBracketsText: Boolean(removeBracketsText.checked),
+    removeTrailingModelCode: Boolean(removeTrailingModelCode.checked),
+    removeAfterDelimiter: Boolean(removeAfterDelimiter.checked),
+    removeLeadingText: Boolean(removeLeadingText.checked),
+    leadingTextValue: leadingTextValue.value,
+    delimiterValue: delimiterValue.value,
+    titleCaseProductName: Boolean(titleCaseProductName.checked),
+  };
+}
+
+function applyProductCleanupOptions(options = {}) {
+  productNameFilters = Array.isArray(options.filters) ? [...options.filters] : [];
+  removeParenthesesText.checked = Boolean(options.removeParenthesesText);
+  removeBracketsText.checked = Boolean(options.removeBracketsText);
+  removeTrailingModelCode.checked = Boolean(options.removeTrailingModelCode);
+  removeAfterDelimiter.checked = Boolean(options.removeAfterDelimiter);
+  removeLeadingText.checked = Boolean(options.removeLeadingText);
+  leadingTextValue.value = options.leadingTextValue ?? "";
+  delimiterValue.value = options.delimiterValue ?? "";
+  titleCaseProductName.checked = Boolean(options.titleCaseProductName);
+  setElementHidden(leadingTextOptions, !removeLeadingText.checked);
+  setElementHidden(delimiterOptions, !removeAfterDelimiter.checked);
+  renderProductFilterInputs();
+}
+
 function buildCurrentSettingsData() {
   if (!uploadedFile || !currentFileKey) return null;
+  const resultSnapshot = buildResultSnapshot();
   return {
     fileKey: currentFileKey,
     fileSignature: createFileSignature(uploadedFile),
     fileName: uploadedFile.name,
     fileSize: uploadedFile.size,
     fileLastModified: uploadedFile.lastModified,
+    fileContentHash: currentFileContentHash,
     savedAt: Date.now(),
     sheetName: sheetSelect.value,
     mapping: {
@@ -1896,10 +1954,51 @@ function buildCurrentSettingsData() {
       productColor: columnFilters.product.selected,
       originalColor: columnFilters.original.selected,
       finalPriceColor: columnFilters.final.selected,
+      productCleanup: getProductCleanupOptions(),
     },
     extraFields: serializeExtraFields(),
     rewardFields: serializeRewardFields(),
+    resultSnapshot,
   };
+}
+
+function buildResultSnapshot() {
+  if (resultSection.hidden || !currentRows.length) return null;
+  return {
+    version: 1,
+    savedAt: Date.now(),
+    rows: cloneRows(currentRows),
+    extraFields: serializeExtraFields(),
+    rewardFields: serializeRewardFields(),
+    sort: {
+      field: sortField.value,
+      direction: sortDirection.value,
+    },
+  };
+}
+
+function restoreResultSnapshotIfSameFile(config) {
+  const snapshot = config?.resultSnapshot;
+  if (!snapshot?.rows?.length) return false;
+  if (!currentFileContentHash || config.fileContentHash !== currentFileContentHash) return false;
+  extraFields = (snapshot.extraFields ?? config.extraFields ?? extraFields).map(normalizeExtraFieldConfig);
+  rewardFields = (snapshot.rewardFields ?? config.rewardFields ?? rewardFields).map(normalizeRewardFieldConfig);
+  renderExtraFieldInputs();
+  renderRewardFieldInputs();
+  renderResults({
+    rows: cloneRows(snapshot.rows),
+    extra_fields: extraFields,
+    reward_fields: rewardFields,
+  });
+  applyProductCleanupOptions(config.options?.productCleanup ?? config.productCleanup ?? {});
+  if (snapshot.sort?.field === "custom") setSortFieldToCustomOrder();
+  if (snapshot.sort?.field) sortField.value = snapshot.sort.field;
+  if (snapshot.sort?.direction) sortDirection.value = snapshot.sort.direction;
+  syncCustomSelect(sortField);
+  syncCustomSelect(sortDirection);
+  renderFilteredResults();
+  setStatus("저장된 설정과 편집했던 결과를 함께 불러왔습니다.", "success");
+  return true;
 }
 
 function queueSaveCurrentSettings() {
@@ -1914,6 +2013,8 @@ function queueSaveCurrentSettings() {
 async function saveCurrentSettings() {
   const data = buildCurrentSettingsData();
   if (!data) return;
+  activeFileSettingsConfig = data;
+  if (hasMatchingResultSnapshot(data)) activeResultSnapshotConfig = data;
   try {
     await saveFileSettings(data.fileKey, data);
   } catch (error) {
@@ -1924,6 +2025,8 @@ async function saveCurrentSettings() {
 function saveCurrentSettingsToLocalMirror() {
   const data = buildCurrentSettingsData();
   if (!data) return;
+  activeFileSettingsConfig = data;
+  if (hasMatchingResultSnapshot(data)) activeResultSnapshotConfig = data;
   saveLocalFileSettings(data.fileKey, data);
 }
 
@@ -1946,6 +2049,7 @@ function normalizeStoredConfig(config) {
       show_discount_minus: config.options?.showDiscountMinus,
       highlight_final_prices: config.options?.highlightFinalPrices,
       group_similar_products: config.options?.groupSimilarProducts,
+      product_cleanup: config.options?.productCleanup ?? config.productCleanup ?? {},
       extra_fields: config.extraFields ?? [],
       reward_fields: config.rewardFields ?? [],
     };
@@ -1971,6 +2075,7 @@ function restoreSettings(config) {
   if (normalizedConfig.show_discount_minus !== undefined) showDiscountMinus.checked = Boolean(normalizedConfig.show_discount_minus);
   if (normalizedConfig.highlight_final_prices !== undefined) highlightFinalPrices.checked = Boolean(normalizedConfig.highlight_final_prices);
   if (normalizedConfig.group_similar_products !== undefined) groupSimilarProducts.checked = Boolean(normalizedConfig.group_similar_products);
+  applyProductCleanupOptions(normalizedConfig.product_cleanup ?? {});
   syncTypedColumns();
   columnFilters.product.selected = normalizedConfig.product_color ?? "";
   columnFilters.original.selected = normalizedConfig.original_color ?? "";
@@ -2116,15 +2221,16 @@ async function saveFileSettings(fileKey, data) {
 }
 
 async function loadSettingsForUploadedFile(file) {
-  const exact = await loadFileSettings(createFileKey(file));
-  if (exact) return exact;
-  const signatureKey = await loadFileSettings(createFileSignatureStorageKey(file));
-  if (signatureKey) return signatureKey;
-  const nameKey = await loadFileSettings(createFileNameStorageKey(file.name));
-  if (nameKey) return nameKey;
-  const sameSignature = await loadLatestFileSettingsBySignature(createFileSignature(file));
-  if (sameSignature) return sameSignature;
-  return loadLatestFileSettingsByName(file.name);
+  const candidates = [
+    await loadFileSettings(createFileKey(file)),
+    await loadFileSettings(createFileSignatureStorageKey(file)),
+    await loadFileSettings(createFileNameStorageKey(file.name)),
+    await loadLatestFileSettingsBySignature(createFileSignature(file)),
+    await loadLatestFileSettingsByName(file.name),
+  ];
+  const lastSettings = readLastLocalSettings();
+  if (isLikelySameFileSetting(lastSettings, file)) candidates.push(lastSettings);
+  return pickBestSettingsForCurrentFile(...candidates);
 }
 
 async function loadLatestFileSettingsBySignature(fileSignature) {
@@ -2192,18 +2298,18 @@ async function loadLatestFileSettingsByName(fileName) {
 async function loadFileSettings(fileKey) {
   if (!fileKey) return null;
   const server = await loadServerFileSettings(fileKey);
-  if (server) return server;
   const local = loadLocalFileSettings(fileKey);
+  let indexed = null;
   try {
-    const result = await withSettingsStore("readonly", (store, done) => {
+    indexed = await withSettingsStore("readonly", (store, done) => {
       const request = store.get(fileKey);
       request.onsuccess = () => done(request.result ?? null);
       request.onerror = () => done(null);
     });
-    return result ?? local ?? fallbackSettingsStore.get(fileKey) ?? null;
   } catch {
-    return local ?? fallbackSettingsStore.get(fileKey) ?? null;
+    indexed = null;
   }
+  return pickBestSettingsForCurrentFile(server, indexed, local, fallbackSettingsStore.get(fileKey));
 }
 
 async function deleteFileSettings(fileKey) {
@@ -2272,13 +2378,38 @@ function writeLocalSettingsMap(map) {
 
 function saveLocalFileSettings(fileKey, data) {
   if (!fileKey || !data) return;
+  const savedAt = Date.now();
+  const normalizedData = { ...data, savedAt };
   const map = readLocalSettingsMap();
-  getSettingsStorageKeys(fileKey, data).forEach((key) => {
-    map[key] = { ...data, fileKey: key, sourceFileKey: fileKey, savedAt: Date.now() };
+  getSettingsStorageKeys(fileKey, normalizedData).forEach((key) => {
+    map[key] = { ...normalizedData, fileKey: key, sourceFileKey: fileKey };
   });
   writeLocalSettingsMap(map);
+  writeLastLocalSettings({ ...normalizedData, fileKey, sourceFileKey: fileKey });
 }
 
+function writeLastLocalSettings(data) {
+  try {
+    localStorage.setItem(LAST_SETTINGS_KEY, JSON.stringify(data));
+  } catch {
+    // Ignore blocked storage.
+  }
+}
+
+function readLastLocalSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_SETTINGS_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function isLikelySameFileSetting(setting, file) {
+  if (!setting || !file) return false;
+  if (setting.fileSignature && setting.fileSignature === createFileSignature(file)) return true;
+  if (setting.fileName && setting.fileName === file.name) return true;
+  return false;
+}
 function loadLocalFileSettings(fileKey) {
   if (!fileKey) return null;
   return readLocalSettingsMap()[fileKey] ?? null;
@@ -2318,6 +2449,21 @@ function cleanupLocalFileSettings(cutoff) {
     }
   });
   if (changed) writeLocalSettingsMap(map);
+}
+
+function hasMatchingResultSnapshot(setting) {
+  return Boolean(
+    setting?.resultSnapshot?.rows?.length
+    && currentFileContentHash
+    && setting.fileContentHash === currentFileContentHash
+  );
+}
+
+function pickBestSettingsForCurrentFile(...items) {
+  const validItems = items.filter(Boolean);
+  const resultSnapshots = validItems.filter(hasMatchingResultSnapshot);
+  if (resultSnapshots.length) return pickLatestSettings(...resultSnapshots);
+  return pickLatestSettings(...validItems);
 }
 
 function pickLatestSettings(...items) {
@@ -2649,12 +2795,14 @@ function renderProductFilterInputs() {
     input.addEventListener("input", () => {
       productNameFilters[index] = input.value;
       renderFilteredResults();
+      queueSaveCurrentSettings();
     });
     removeButton.addEventListener("click", (event) => {
       event.stopPropagation();
       productNameFilters.splice(index, 1);
       renderProductFilterInputs();
       renderFilteredResults();
+      queueSaveCurrentSettings();
       setElementHidden(productFilterPanel, false);
     });
     productFilterList.appendChild(row);
@@ -2751,6 +2899,7 @@ function showRestoreDialog() {
         handler: () => {
           if (pendingRestoreConfig) {
             restoreSettings(pendingRestoreConfig);
+            restoreResultSnapshotIfSameFile(pendingRestoreConfig);
             queueSaveCurrentSettings();
           }
           pendingRestoreConfig = null;
@@ -3233,6 +3382,7 @@ function cssEscape(value) {
   if (window.CSS?.escape) return CSS.escape(value);
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
+
 
 
 
