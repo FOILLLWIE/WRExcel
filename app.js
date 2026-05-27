@@ -2238,6 +2238,22 @@ async function cleanupStoredSettings() {
   }
 }
 
+function markStorageUsage() {
+  try {
+    localStorage.setItem("WRExcelStorageMarker", JSON.stringify({ savedAt: Date.now(), version: "20260527-3" }));
+  } catch {
+    // Storage can be blocked by browser settings. Settings saving will fall back where possible.
+  }
+}
+async function requestPersistentStorage() {
+  try {
+    if (!navigator.storage?.persisted || !navigator.storage?.persist) return;
+    const alreadyPersisted = await navigator.storage.persisted();
+    if (!alreadyPersisted) await navigator.storage.persist();
+  } catch {
+    // Some browsers do not support persistent storage requests. The app still uses normal browser storage.
+  }
+}
 function readLocalSettingsMap() {
   try {
     return JSON.parse(localStorage.getItem(LOCAL_SETTINGS_KEY) || "{}");
@@ -3217,6 +3233,8 @@ function cssEscape(value) {
   if (window.CSS?.escape) return CSS.escape(value);
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
+
+
 
 
 
