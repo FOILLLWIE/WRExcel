@@ -1843,6 +1843,21 @@ function createFileSignature(file) {
   return `${file.name}_${file.size}`;
 }
 
+function createFileSignatureStorageKey(file) {
+  return `signature:${createFileSignature(file)}`;
+}
+
+function createFileNameStorageKey(fileName) {
+  return `name:${fileName}`;
+}
+
+function getSettingsStorageKeys(fileKey, data) {
+  const keys = [fileKey];
+  if (data?.fileSignature) keys.push(`signature:${data.fileSignature}`);
+  if (data?.fileName) keys.push(createFileNameStorageKey(data.fileName));
+  return [...new Set(keys.filter(Boolean))];
+}
+
 function createFileKey(file) {
   return `${createFileSignature(file)}_${file.lastModified}`;
 }
@@ -2089,19 +2104,24 @@ async function saveFileSettings(fileKey, data) {
   if (!fileKey || !data) return;
   saveLocalFileSettings(fileKey, data);
   saveServerFileSettings(fileKey, data).catch(() => {});
+  const storageKeys = getSettingsStorageKeys(fileKey, data);
   try {
     const saved = await withSettingsStore("readwrite", (store) => {
-      store.put({ ...data, fileKey });
+      storageKeys.forEach((key) => store.put({ ...data, fileKey: key, sourceFileKey: fileKey }));
     });
-    if (saved === null) fallbackSettingsStore.set(fileKey, { ...data, fileKey });
+    if (saved === null) storageKeys.forEach((key) => fallbackSettingsStore.set(key, { ...data, fileKey: key, sourceFileKey: fileKey }));
   } catch {
-    fallbackSettingsStore.set(fileKey, { ...data, fileKey });
+    storageKeys.forEach((key) => fallbackSettingsStore.set(key, { ...data, fileKey: key, sourceFileKey: fileKey }));
   }
 }
 
 async function loadSettingsForUploadedFile(file) {
   const exact = await loadFileSettings(createFileKey(file));
   if (exact) return exact;
+  const signatureKey = await loadFileSettings(createFileSignatureStorageKey(file));
+  if (signatureKey) return signatureKey;
+  const nameKey = await loadFileSettings(createFileNameStorageKey(file.name));
+  if (nameKey) return nameKey;
   const sameSignature = await loadLatestFileSettingsBySignature(createFileSignature(file));
   if (sameSignature) return sameSignature;
   return loadLatestFileSettingsByName(file.name);
@@ -2237,7 +2257,9 @@ function writeLocalSettingsMap(map) {
 function saveLocalFileSettings(fileKey, data) {
   if (!fileKey || !data) return;
   const map = readLocalSettingsMap();
-  map[fileKey] = { ...data, fileKey, savedAt: Date.now() };
+  getSettingsStorageKeys(fileKey, data).forEach((key) => {
+    map[key] = { ...data, fileKey: key, sourceFileKey: fileKey, savedAt: Date.now() };
+  });
   writeLocalSettingsMap(map);
 }
 
@@ -3195,6 +3217,7 @@ function cssEscape(value) {
   if (window.CSS?.escape) return CSS.escape(value);
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
+
 
 
 
