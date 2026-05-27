@@ -1,11 +1,24 @@
-﻿# Personal/test Excel files
+﻿# Keep GitHub Pages root clean: only final web app files are published.
+
+# Workspace/system folders
+system/
+github-pages-package/
+docs/
+test/
+- 개인테스트용 파일/
+
+# Local/server-only files
+server.py
+render.yaml
+requirements.txt
+수정사항.txt
+할인금액계산기_실행.vbs
+desktop.ini
+__pycache__/
+*.pyc
+system/wrexcel-settings.json
+
+# Personal/test Excel files
 *.xlsx
 *.xls
 *.csv
-
-# Local/private runtime files
-desktop.ini
-__pycache__/
-system/__pycache__/
-system/wrexcel-settings.json
-- 개인테스트용 파일/
