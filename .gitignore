@@ -1,0 +1,11 @@
+﻿# Personal/test Excel files
+*.xlsx
+*.xls
+*.csv
+
+# Local/private runtime files
+desktop.ini
+__pycache__/
+system/__pycache__/
+system/wrexcel-settings.json
+- 개인테스트용 파일/
