@@ -1,9 +1,9 @@
-﻿# Keep GitHub Pages root clean: only final web app files are published.
+﻿# GitHub Pages deploys from /docs.
+# Keep workspace/system files local only.
 
 # Workspace/system folders
 system/
 github-pages-package/
-docs/
 test/
 - 개인테스트용 파일/
 
