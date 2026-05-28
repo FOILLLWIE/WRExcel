@@ -1511,6 +1511,10 @@ function groupRowsByCategory(rows) {
   return [...groups.entries()];
 }
 
+function clearRestoredResultSnapshot() {
+  activeResultSnapshotConfig = null;
+}
+
 function syncTypedColumns() {
   [productColumn, originalColumn, finalPriceColumn, categoryColumn].forEach((input) => {
     const parsed = parseColumnInput(input.value);
