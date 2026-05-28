@@ -1988,6 +1988,47 @@ function isSameMapping(mappingA = {}, mappingB = {}) {
   return ["product", "original", "finalPrice", "category"].every((key) => (mappingA[key] ?? "") === (mappingB[key] ?? ""));
 }
 
+function hasActiveColorFilter() {
+  return Object.values(columnFilters).some((filter) => Boolean(filter.selected));
+}
+
+function getCurrentCalculationFingerprint() {
+  return {
+    sheetName: sheetSelect.value,
+    mapping: getCurrentMappingSnapshot(),
+    range: {
+      startRow: Number(startRow.value || 1),
+      endRow: Number(endRow.value || 1),
+    },
+    colorFilters: {
+      product: { color: columnFilters.product.selected, mode: columnFilters.product.mode },
+      original: { color: columnFilters.original.selected, mode: columnFilters.original.mode },
+      final: { color: columnFilters.final.selected, mode: columnFilters.final.mode },
+    },
+    extraFields: serializeExtraFields(),
+    rewardFields: serializeRewardFields(),
+  };
+}
+
+function stableSettingsString(value) {
+  if (Array.isArray(value)) return `[${value.map(stableSettingsString).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSettingsString(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function canRestoreResultSnapshot(snapshot, config) {
+  if (!snapshot?.rows?.length) return false;
+  if (!currentFileContentHash || config.fileContentHash !== currentFileContentHash) return false;
+  if (snapshot.calculation) {
+    return stableSettingsString(snapshot.calculation) === stableSettingsString(getCurrentCalculationFingerprint());
+  }
+  if (hasActiveColorFilter()) return false;
+  const snapshotMapping = snapshot.mapping ?? config.mapping ?? {};
+  return isSameMapping(snapshotMapping, getCurrentMappingSnapshot());
+}
+
 function getProductCleanupOptions() {
   return {
     filters: [...productNameFilters],
@@ -2066,6 +2107,7 @@ function buildResultSnapshot() {
     extraFields: serializeExtraFields(),
     rewardFields: serializeRewardFields(),
     mapping: currentMapping,
+    calculation: getCurrentCalculationFingerprint(),
     sort: {
       field: sortField.value,
       direction: sortDirection.value,
@@ -2075,10 +2117,7 @@ function buildResultSnapshot() {
 
 function restoreResultSnapshotIfSameFile(config) {
   const snapshot = config?.resultSnapshot;
-  if (!snapshot?.rows?.length) return false;
-  if (!currentFileContentHash || config.fileContentHash !== currentFileContentHash) return false;
-  const snapshotMapping = snapshot.mapping ?? config.mapping ?? {};
-  if (!isSameMapping(snapshotMapping, getCurrentMappingSnapshot())) return false;
+  if (!canRestoreResultSnapshot(snapshot, config)) return false;
   extraFields = (snapshot.extraFields ?? config.extraFields ?? extraFields).map(normalizeExtraFieldConfig);
   rewardFields = (snapshot.rewardFields ?? config.rewardFields ?? rewardFields).map(normalizeRewardFieldConfig);
   renderExtraFieldInputs();
