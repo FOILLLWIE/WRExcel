@@ -122,9 +122,9 @@ const GROUPED_PRODUCT_JOINER = ` ${GROUPED_PRODUCT_SEPARATOR} `;
 const rewardFieldNameSuggestions = ["\uC2A4\uB9C8\uC77C\uCE74\uB4DC", "\uBA38\uB2C8\uCDA9\uC804", "\uAF2D\uBA64\uBC841", "\uAF2D\uBA64\uBC842"];
 const worksheetMergeRangeCache = new WeakMap();
 const columnFilters = {
-  product: { input: productColumn, picker: productColorPicker, trigger: productColorTrigger, choices: productColorChoices, selected: "" },
-  original: { input: originalColumn, picker: originalColorPicker, trigger: originalColorTrigger, choices: originalColorChoices, selected: "" },
-  final: { input: finalPriceColumn, picker: finalColorPicker, trigger: finalColorTrigger, choices: finalColorChoices, selected: "" },
+  product: { input: productColumn, picker: productColorPicker, trigger: productColorTrigger, choices: productColorChoices, selected: "", mode: "include" },
+  original: { input: originalColumn, picker: originalColorPicker, trigger: originalColorTrigger, choices: originalColorChoices, selected: "", mode: "include" },
+  final: { input: finalPriceColumn, picker: finalColorPicker, trigger: finalColorTrigger, choices: finalColorChoices, selected: "", mode: "include" },
 };
 
 if (window.location.protocol === "file:") {
@@ -217,10 +217,13 @@ calculateButton.addEventListener("click", async () => {
       sheet_name: sheetSelect.value,
       product_col: productColumn.dataset.index,
       product_color: columnFilters.product.selected,
+      product_color_mode: columnFilters.product.mode,
       original_col: originalColumn.dataset.index,
       original_color: columnFilters.original.selected,
+      original_color_mode: columnFilters.original.mode,
       final_price_col: finalPriceColumn.dataset.index,
       final_price_color: columnFilters.final.selected,
+      final_price_color_mode: columnFilters.final.mode,
       category_col: categoryColumn.dataset.index ?? "",
       extra_fields: JSON.stringify(serializeExtraFields()),
       reward_fields: JSON.stringify(serializeRewardFields()),
@@ -562,6 +565,7 @@ async function loadColumnColors(key) {
 
   try {
     const previousSelection = filter.selected;
+    const previousMode = filter.mode;
     const payload = await postFile("/api/column-colors", {
       sheet_name: sheetSelect.value,
       column_index: filter.input.dataset.index,
@@ -571,10 +575,11 @@ async function loadColumnColors(key) {
     const usableColors = payload.colors.filter((color) => color.value !== "FFFFFF");
     const availableColors = usableColors.map((color) => color.value);
     filter.selected = availableColors.includes(previousSelection) ? previousSelection : "";
-    filter.choices.innerHTML = `<button class="color-choice selected" type="button" data-color="">전체</button>`;
+    filter.mode = filter.selected ? previousMode || "include" : "include";
+    filter.choices.innerHTML = buildColorModeControls(filter) + `<button class="color-choice${filter.selected ? "" : " selected"}" type="button" data-color="">\uc804\uccb4</button>`;
     usableColors.forEach((color) => {
       const button = document.createElement("button");
-      button.className = "color-choice";
+      button.className = `color-choice${filter.selected === color.value ? " selected" : ""}`;
       button.type = "button";
       button.dataset.color = color.value;
       button.innerHTML = `
@@ -595,9 +600,10 @@ async function loadColumnColors(key) {
 function resetColumnColors(key) {
   const filter = columnFilters[key];
   filter.selected = "";
+  filter.mode = "include";
   setElementHidden(filter.picker, true);
   setElementHidden(filter.choices, true);
-  filter.choices.innerHTML = `<button class="color-choice selected" type="button" data-color="">전체</button>`;
+  filter.choices.innerHTML = buildColorModeControls(filter) + `<button class="color-choice selected" type="button" data-color="">\uc804\uccb4</button>`;
   updateColorTrigger(key);
 }
 
@@ -607,11 +613,35 @@ function closeAllColorMenus(exceptChoices = null) {
   });
 }
 
+function buildColorModeControls(filter) {
+  return `
+    <div class="color-mode-controls" role="group" aria-label="\uc0c9\uc0c1 \ud544\ud130 \ubc29\uc2dd">
+      <button class="color-mode-button${filter.mode !== "exclude" ? " selected" : ""}" type="button" data-color-mode="include">\uc120\ud0dd \uc0c9\uc0c1\ub9cc \ubcf4\uae30</button>
+      <button class="color-mode-button${filter.mode === "exclude" ? " selected" : ""}" type="button" data-color-mode="exclude">\uc120\ud0dd \uc0c9\uc0c1 \uc81c\uc678</button>
+    </div>
+  `;
+}
+
 function bindColorChoiceEvents(key) {
   const filter = columnFilters[key];
+  filter.choices.querySelectorAll(".color-mode-button").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      filter.mode = button.dataset.colorMode === "exclude" ? "exclude" : "include";
+      filter.choices.querySelectorAll(".color-mode-button").forEach((node) => {
+        node.classList.toggle("selected", node === button);
+      });
+      clearRestoredResultSnapshot();
+      updateColorTrigger(key);
+      queueSaveCurrentSettings();
+    });
+  });
   filter.choices.querySelectorAll(".color-choice").forEach((button) => {
     button.addEventListener("click", () => {
-      filter.selected = button.dataset.color;
+      const nextColor = button.dataset.color;
+      if (!nextColor) filter.mode = "include";
+      if (filter.selected !== nextColor) clearRestoredResultSnapshot();
+      filter.selected = nextColor;
       filter.choices.querySelectorAll(".color-choice").forEach((node) => {
         node.classList.toggle("selected", node === button);
       });
@@ -631,9 +661,9 @@ function updateColorTrigger(key) {
   }
   const selectedButton = filter.choices.querySelector(`[data-color="${filter.selected}"]`);
   filter.trigger.innerHTML = selectedButton
-    ? `<span class="color-swatch" style="background:#${filter.selected}"></span>`
+    ? `<span class="color-swatch" style="background:#${filter.selected}"></span>${filter.mode === "exclude" ? '<span class="color-exclude-mark">\u00d7</span>' : ""}`
     : "+";
-  filter.trigger.title = filter.selected ? `#${filter.selected}` : "";
+  filter.trigger.title = filter.selected ? `#${filter.selected} ${filter.mode === "exclude" ? "\uc81c\uc678" : "\ud3ec\ud568"}` : "";
   filter.trigger.classList.add("has-selection");
 }
 
@@ -1304,9 +1334,9 @@ async function calculateExcelInBrowser(fields) {
     const row = worksheet.getRow(rowNumber);
     const categoryValue = categoryCol !== null ? String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, categoryCol).value)).trim() : "";
     if (categoryValue) activeCategoryName = categoryValue;
-    if (fields.product_color && normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, productCol)) !== fields.product_color) continue;
-    if (fields.original_color && normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, originalCol)) !== fields.original_color) continue;
-    if (fields.final_price_color && normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, finalCol)) !== fields.final_price_color) continue;
+    if (!passesColorFilter(getDisplayCell(worksheet, rowNumber, productCol), fields.product_color, fields.product_color_mode)) continue;
+    if (!passesColorFilter(getDisplayCell(worksheet, rowNumber, originalCol), fields.original_color, fields.original_color_mode)) continue;
+    if (!passesColorFilter(getDisplayCell(worksheet, rowNumber, finalCol), fields.final_price_color, fields.final_price_color_mode)) continue;
 
     const productValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, productCol).value);
     const originalCellValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, originalCol).value);
@@ -1364,6 +1394,12 @@ async function calculateExcelInBrowser(fields) {
   }
   if (rows.length === 0) throw new Error("선택한 범위에서 출력할 상품을 찾지 못했습니다.");
   return { rows, extra_fields: extraFieldList, reward_fields: rewardFieldList };
+}
+
+function passesColorFilter(cell, selectedColor, mode = "include") {
+  if (!selectedColor) return true;
+  const cellColor = normalizeBrowserFillColor(cell);
+  return mode === "exclude" ? cellColor !== selectedColor : cellColor === selectedColor;
 }
 
 function columnLabel(index) {
@@ -1971,8 +2007,11 @@ function buildCurrentSettingsData() {
       highlightFinalPrices: Boolean(highlightFinalPrices.checked),
       groupSimilarProducts: Boolean(groupSimilarProducts.checked),
       productColor: columnFilters.product.selected,
+      productColorMode: columnFilters.product.mode,
       originalColor: columnFilters.original.selected,
+      originalColorMode: columnFilters.original.mode,
       finalPriceColor: columnFilters.final.selected,
+      finalPriceColorMode: columnFilters.final.mode,
       productCleanup: getProductCleanupOptions(),
     },
     extraFields: serializeExtraFields(),
@@ -2062,10 +2101,13 @@ function normalizeStoredConfig(config) {
       sheet_name: config.sheetName ?? config.sheet_name ?? sheetSelect.value,
       product_col: config.mapping?.product ?? "",
       product_color: config.options?.productColor ?? "",
+      product_color_mode: config.options?.productColorMode ?? "include",
       original_col: config.mapping?.original ?? "",
       original_color: config.options?.originalColor ?? "",
+      original_color_mode: config.options?.originalColorMode ?? "include",
       final_price_col: config.mapping?.finalPrice ?? "",
       final_price_color: config.options?.finalPriceColor ?? "",
+      final_price_color_mode: config.options?.finalPriceColorMode ?? "include",
       category_col: config.mapping?.category ?? "",
       start_row: config.range?.startRow ?? "",
       end_row: config.range?.endRow ?? "",
@@ -2103,8 +2145,11 @@ function restoreSettings(config) {
   applyProductCleanupOptions(normalizedConfig.product_cleanup ?? {});
   syncTypedColumns();
   columnFilters.product.selected = normalizedConfig.product_color ?? "";
+  columnFilters.product.mode = normalizedConfig.product_color_mode === "exclude" ? "exclude" : "include";
   columnFilters.original.selected = normalizedConfig.original_color ?? "";
+  columnFilters.original.mode = normalizedConfig.original_color_mode === "exclude" ? "exclude" : "include";
   columnFilters.final.selected = normalizedConfig.final_price_color ?? "";
+  columnFilters.final.mode = normalizedConfig.final_price_color_mode === "exclude" ? "exclude" : "include";
   extraFields = (normalizedConfig.extra_fields ?? []).map(normalizeExtraFieldConfig);
   rewardFields = (normalizedConfig.reward_fields ?? []).map(normalizeRewardFieldConfig);
   renderExtraFieldInputs();

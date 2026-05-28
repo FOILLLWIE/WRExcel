@@ -393,6 +393,60 @@ h1 {
 }
 
 
+.inline-color-trigger {
+  position: relative;
+}
+
+.color-exclude-mark {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #9a5b2a;
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.color-mode-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: #f6efe8;
+  border: 1px solid rgba(154, 91, 42, 0.14);
+}
+
+.color-mode-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 9px;
+  background: transparent;
+  color: #7a5a42;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.color-mode-button:hover {
+  background: rgba(154, 91, 42, 0.08);
+}
+
+.color-mode-button.selected {
+  background: #9a5b2a;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(154, 91, 42, 0.18);
+}
+
+
 .selection-actions {
   display: flex;
   flex-wrap: wrap;
