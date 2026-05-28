@@ -122,6 +122,8 @@ const GROUPED_PRODUCT_SEPARATOR = "\uFF5C";
 const GROUPED_PRODUCT_JOINER = ` ${GROUPED_PRODUCT_SEPARATOR} `;
 const rewardFieldNameSuggestions = ["\uC2A4\uB9C8\uC77C\uCE74\uB4DC", "\uBA38\uB2C8\uCDA9\uC804", "\uAF2D\uBA64\uBC841", "\uAF2D\uBA64\uBC842"];
 const worksheetMergeRangeCache = new WeakMap();
+const worksheetStatusFillCache = new WeakMap();
+const CONDITIONAL_STATUS_RED = "FF0000";
 const columnFilters = {
   product: { input: productColumn, picker: productColorPicker, trigger: productColorTrigger, choices: productColorChoices, selected: "", mode: "include" },
   original: { input: originalColumn, picker: originalColorPicker, trigger: originalColorTrigger, choices: originalColorChoices, selected: "", mode: "include" },
@@ -1243,6 +1245,34 @@ function normalizeBrowserFillColor(cell) {
   return null;
 }
 
+function getEffectiveBrowserFillColor(worksheet, rowNumber, columnIndex) {
+  const directColor = normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, columnIndex));
+  return directColor || inferStatusConditionalFillColor(worksheet, rowNumber);
+}
+
+function inferStatusConditionalFillColor(worksheet, rowNumber) {
+  if (!hasStatusConditionalFillHint(worksheet)) return null;
+  const productText = String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, 0).value) ?? "").trim();
+  const statusText = String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, 4).value) ?? "").trim().toUpperCase();
+  if (!productText) return null;
+  if (productText.includes("(\uD488\uC808)") || productText.includes("(\uB2E8\uC885)") || statusText === "X") return CONDITIONAL_STATUS_RED;
+  return null;
+}
+
+function hasStatusConditionalFillHint(worksheet) {
+  if (worksheetStatusFillCache.has(worksheet)) return worksheetStatusFillCache.get(worksheet);
+  let hasHint = false;
+  for (let rowNumber = 1; rowNumber <= Math.min(worksheet.rowCount, 500); rowNumber += 1) {
+    const text = String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, 0).value) ?? "");
+    if (text.includes("(\uD488\uC808)") || text.includes("(\uB2E8\uC885)")) {
+      hasHint = true;
+      break;
+    }
+  }
+  worksheetStatusFillCache.set(worksheet, hasHint);
+  return hasHint;
+}
+
 function normalizeExcelColor(color) {
   if (!color) return null;
   if (color.argb) {
@@ -1297,7 +1327,7 @@ async function columnColorsInBrowser(fields) {
     if (isHiddenRow(worksheet, rowNumber)) continue;
     const cell = getDisplayCell(worksheet, rowNumber, columnIndex);
     if (cleanExcelCellValue(cell.value) === "") continue;
-    const color = normalizeBrowserFillColor(cell);
+    const color = getEffectiveBrowserFillColor(worksheet, rowNumber, columnIndex);
     if (color) counts.set(color, (counts.get(color) ?? 0) + 1);
   }
   return {
@@ -1337,9 +1367,9 @@ async function calculateExcelInBrowser(fields) {
     const row = worksheet.getRow(rowNumber);
     const categoryValue = categoryCol !== null ? String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, categoryCol).value)).trim() : "";
     if (categoryValue) activeCategoryName = categoryValue;
-    if (!passesColorFilter(getDisplayCell(worksheet, rowNumber, productCol), fields.product_color, fields.product_color_mode)) continue;
-    if (!passesColorFilter(getDisplayCell(worksheet, rowNumber, originalCol), fields.original_color, fields.original_color_mode)) continue;
-    if (!passesColorFilter(getDisplayCell(worksheet, rowNumber, finalCol), fields.final_price_color, fields.final_price_color_mode)) continue;
+    if (!passesColorFilter(worksheet, rowNumber, productCol, fields.product_color, fields.product_color_mode)) continue;
+    if (!passesColorFilter(worksheet, rowNumber, originalCol, fields.original_color, fields.original_color_mode)) continue;
+    if (!passesColorFilter(worksheet, rowNumber, finalCol, fields.final_price_color, fields.final_price_color_mode)) continue;
 
     const productValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, productCol).value);
     const originalCellValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, originalCol).value);
@@ -1399,9 +1429,9 @@ async function calculateExcelInBrowser(fields) {
   return { rows, extra_fields: extraFieldList, reward_fields: rewardFieldList };
 }
 
-function passesColorFilter(cell, selectedColor, mode = "include") {
+function passesColorFilter(worksheet, rowNumber, columnIndex, selectedColor, mode = "include") {
   if (!selectedColor) return true;
-  const cellColor = normalizeBrowserFillColor(cell);
+  const cellColor = getEffectiveBrowserFillColor(worksheet, rowNumber, columnIndex);
   return mode === "exclude" ? cellColor !== selectedColor : cellColor === selectedColor;
 }
 
