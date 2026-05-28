@@ -1337,9 +1337,9 @@ async function calculateExcelInBrowser(fields) {
     const row = worksheet.getRow(rowNumber);
     const categoryValue = categoryCol !== null ? String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, categoryCol).value)).trim() : "";
     if (categoryValue) activeCategoryName = categoryValue;
-    if (!passesColorFilter(worksheet, rowNumber, productCol, fields.product_color, fields.product_color_mode)) continue;
-    if (!passesColorFilter(worksheet, rowNumber, originalCol, fields.original_color, fields.original_color_mode)) continue;
-    if (!passesColorFilter(worksheet, rowNumber, finalCol, fields.final_price_color, fields.final_price_color_mode)) continue;
+    if (!passesColorFilter(getDisplayCell(worksheet, rowNumber, productCol), fields.product_color, fields.product_color_mode)) continue;
+    if (!passesColorFilter(getDisplayCell(worksheet, rowNumber, originalCol), fields.original_color, fields.original_color_mode)) continue;
+    if (!passesColorFilter(getDisplayCell(worksheet, rowNumber, finalCol), fields.final_price_color, fields.final_price_color_mode)) continue;
 
     const productValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, productCol).value);
     const originalCellValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, originalCol).value);
@@ -1399,19 +1399,10 @@ async function calculateExcelInBrowser(fields) {
   return { rows, extra_fields: extraFieldList, reward_fields: rewardFieldList };
 }
 
-function rowHasFillColor(worksheet, rowNumber, selectedColor) {
-  const row = worksheet.getRow(rowNumber);
-  const maxColumn = Math.max(worksheet.columnCount || 0, row.cellCount || 0);
-  for (let columnIndex = 1; columnIndex <= maxColumn; columnIndex += 1) {
-    if (normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, columnIndex)) === selectedColor) return true;
-  }
-  return false;
-}
-
-function passesColorFilter(worksheet, rowNumber, columnIndex, selectedColor, mode = "include") {
+function passesColorFilter(cell, selectedColor, mode = "include") {
   if (!selectedColor) return true;
-  if (mode === "exclude") return !rowHasFillColor(worksheet, rowNumber, selectedColor);
-  return normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, columnIndex)) === selectedColor;
+  const cellColor = normalizeBrowserFillColor(cell);
+  return mode === "exclude" ? cellColor !== selectedColor : cellColor === selectedColor;
 }
 
 function columnLabel(index) {
