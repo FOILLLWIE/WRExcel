@@ -97,6 +97,7 @@ let activeExtraFieldTarget = null;
 let pendingRestoreConfig = null;
 let activeFileSettingsConfig = null;
 let activeResultSnapshotConfig = null;
+let lastResultMapping = null;
 let currentFileKey = "";
 let currentFileContentHash = "";
 let settingsSaveTimer = null;
@@ -154,6 +155,7 @@ fileInput.addEventListener("change", async (event) => {
   currentFileContentHash = await createFileContentHash(file);
   activeFileSettingsConfig = null;
   activeResultSnapshotConfig = null;
+  lastResultMapping = null;
   fileDrop.classList.add("uploaded");
   hideResults();
   extraFields = [];
@@ -645,6 +647,7 @@ async function postFile(path, extraFields = {}) {
 function renderResults(payload) {
   itemCount.textContent = `${payload.rows.length}개`;
   currentRows = payload.rows;
+  lastResultMapping = getCurrentMappingSnapshot();
   editRowsSnapshot = null;
   activeInlineEdit = null;
   setEditMode(false);
@@ -1897,6 +1900,20 @@ function getColumnLetterFromInput(input) {
   return parsed === null ? "" : columnLabel(parsed);
 }
 
+function getCurrentMappingSnapshot() {
+  syncTypedColumns();
+  return {
+    product: getColumnLetterFromInput(productColumn),
+    original: getColumnLetterFromInput(originalColumn),
+    finalPrice: getColumnLetterFromInput(finalPriceColumn),
+    category: getColumnLetterFromInput(categoryColumn),
+  };
+}
+
+function isSameMapping(mappingA = {}, mappingB = {}) {
+  return ["product", "original", "finalPrice", "category"].every((key) => (mappingA[key] ?? "") === (mappingB[key] ?? ""));
+}
+
 function getProductCleanupOptions() {
   return {
     filters: [...productNameFilters],
@@ -1938,12 +1955,7 @@ function buildCurrentSettingsData() {
     fileContentHash: currentFileContentHash,
     savedAt: Date.now(),
     sheetName: sheetSelect.value,
-    mapping: {
-      product: getColumnLetterFromInput(productColumn),
-      original: getColumnLetterFromInput(originalColumn),
-      finalPrice: getColumnLetterFromInput(finalPriceColumn),
-      category: getColumnLetterFromInput(categoryColumn),
-    },
+    mapping: getCurrentMappingSnapshot(),
     range: {
       startRow: Number(startRow.value || 1),
       endRow: Number(endRow.value || 1),
@@ -1967,12 +1979,15 @@ function buildCurrentSettingsData() {
 
 function buildResultSnapshot() {
   if (resultSection.hidden || !currentRows.length) return null;
+  const currentMapping = getCurrentMappingSnapshot();
+  if (lastResultMapping && !isSameMapping(lastResultMapping, currentMapping)) return null;
   return {
     version: 1,
     savedAt: Date.now(),
     rows: cloneRows(currentRows),
     extraFields: serializeExtraFields(),
     rewardFields: serializeRewardFields(),
+    mapping: currentMapping,
     sort: {
       field: sortField.value,
       direction: sortDirection.value,
@@ -1984,6 +1999,8 @@ function restoreResultSnapshotIfSameFile(config) {
   const snapshot = config?.resultSnapshot;
   if (!snapshot?.rows?.length) return false;
   if (!currentFileContentHash || config.fileContentHash !== currentFileContentHash) return false;
+  const snapshotMapping = snapshot.mapping ?? config.mapping ?? {};
+  if (!isSameMapping(snapshotMapping, getCurrentMappingSnapshot())) return false;
   extraFields = (snapshot.extraFields ?? config.extraFields ?? extraFields).map(normalizeExtraFieldConfig);
   rewardFields = (snapshot.rewardFields ?? config.rewardFields ?? rewardFields).map(normalizeRewardFieldConfig);
   renderExtraFieldInputs();
@@ -1993,6 +2010,7 @@ function restoreResultSnapshotIfSameFile(config) {
     extra_fields: extraFields,
     reward_fields: rewardFields,
   });
+  lastResultMapping = getCurrentMappingSnapshot();
   applyProductCleanupOptions(config.options?.productCleanup ?? config.productCleanup ?? {});
   if (snapshot.sort?.field === "custom") setSortFieldToCustomOrder();
   if (snapshot.sort?.field) sortField.value = snapshot.sort.field;
