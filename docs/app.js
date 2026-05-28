@@ -1293,11 +1293,14 @@ async function calculateExcelInBrowser(fields) {
   });
 
   const rows = [];
+  let activeCategoryName = "";
   const start = Math.max(Number(fields.start_row || 1), 1);
   const end = Math.min(Number(fields.end_row || worksheet.rowCount), worksheet.rowCount);
   for (let rowNumber = start; rowNumber <= end; rowNumber += 1) {
     if (isHiddenRow(worksheet, rowNumber)) continue;
     const row = worksheet.getRow(rowNumber);
+    const categoryValue = categoryCol !== null ? String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, categoryCol).value)).trim() : "";
+    if (categoryValue) activeCategoryName = categoryValue;
     if (fields.product_color && normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, productCol)) !== fields.product_color) continue;
     if (fields.original_color && normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, originalCol)) !== fields.original_color) continue;
     if (fields.final_price_color && normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, finalCol)) !== fields.final_price_color) continue;
@@ -1343,7 +1346,7 @@ async function calculateExcelInBrowser(fields) {
     rows.push({
       row_id: rowNumber,
       product_name: String(productValue),
-      category_name: categoryCol !== null ? String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, categoryCol).value)) : "",
+      category_name: categoryCol !== null ? (categoryValue || activeCategoryName) : "",
       base_original_price: Math.round(originalPrice),
       has_extra_price_formula: hasExtraPriceFormula,
       original_price: Math.round(originalPrice),
