@@ -3035,6 +3035,8 @@ function showRestoreDialog() {
         className: "ghost-button",
         handler: () => {
           pendingRestoreConfig = null;
+          activeResultSnapshotConfig = null;
+          resultSnapshotDirty = true;
           hideRestoreDialog();
         },
       },
