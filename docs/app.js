@@ -98,6 +98,7 @@ let pendingRestoreConfig = null;
 let activeFileSettingsConfig = null;
 let activeResultSnapshotConfig = null;
 let lastResultMapping = null;
+let resultSnapshotDirty = false;
 let currentFileKey = "";
 let currentFileContentHash = "";
 let settingsSaveTimer = null;
@@ -156,6 +157,7 @@ fileInput.addEventListener("change", async (event) => {
   activeFileSettingsConfig = null;
   activeResultSnapshotConfig = null;
   lastResultMapping = null;
+  resultSnapshotDirty = false;
   fileDrop.classList.add("uploaded");
   hideResults();
   extraFields = [];
@@ -206,7 +208,7 @@ calculateButton.addEventListener("click", async () => {
     showMessageDialog(extraFieldValidationMessage);
     return;
   }
-  if (restoreResultSnapshotIfSameFile(activeResultSnapshotConfig ?? activeFileSettingsConfig)) {
+  if (restoreResultSnapshotIfSameFile(activeResultSnapshotConfig)) {
     queueSaveCurrentSettings();
     resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
@@ -678,6 +680,7 @@ function renderResults(payload) {
   itemCount.textContent = `${payload.rows.length}개`;
   currentRows = payload.rows;
   lastResultMapping = getCurrentMappingSnapshot();
+  resultSnapshotDirty = false;
   editRowsSnapshot = null;
   activeInlineEdit = null;
   setEditMode(false);
@@ -1549,6 +1552,7 @@ function groupRowsByCategory(rows) {
 
 function clearRestoredResultSnapshot() {
   activeResultSnapshotConfig = null;
+  resultSnapshotDirty = true;
 }
 
 function syncTypedColumns() {
@@ -2021,6 +2025,7 @@ function buildCurrentSettingsData() {
 }
 
 function buildResultSnapshot() {
+  if (resultSnapshotDirty) return null;
   if (resultSection.hidden || !currentRows.length) return null;
   const currentMapping = getCurrentMappingSnapshot();
   if (lastResultMapping && !isSameMapping(lastResultMapping, currentMapping)) return null;
@@ -2054,6 +2059,7 @@ function restoreResultSnapshotIfSameFile(config) {
     reward_fields: rewardFields,
   });
   lastResultMapping = getCurrentMappingSnapshot();
+  resultSnapshotDirty = false;
   applyProductCleanupOptions(config.options?.productCleanup ?? config.productCleanup ?? {});
   if (snapshot.sort?.field === "custom") setSortFieldToCustomOrder();
   if (snapshot.sort?.field) sortField.value = snapshot.sort.field;
