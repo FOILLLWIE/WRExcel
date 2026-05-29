@@ -1327,6 +1327,20 @@ th {
   max-width: 100%;
 }
 
+.table-panel td[data-column="product_name"] .product-cell-content {
+  width: 100%;
+  min-width: 0;
+}
+
+.table-panel td[data-column="product_name"] .copy-value {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .row-delete-button {
   flex: 0 0 22px;
   width: 22px;

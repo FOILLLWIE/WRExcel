@@ -856,16 +856,26 @@ function renderFilteredResults() {
 }
 
 function normalizeInitialExtraTableWidth() {
-  if (productColumnWidth !== null || extraFields.length === 0 || resultSection.hidden) return;
+  if (productColumnWidth !== null || resultSection.hidden) return;
   requestAnimationFrame(() => {
-    if (productColumnWidth !== null || extraFields.length === 0 || resultSection.hidden) return;
-    const table = tableWrap?.querySelector("table");
-    const productWidth = Math.ceil(productNameHeader.getBoundingClientRect().width || 0);
-    if (!table || productWidth <= 0) return;
+    if (productColumnWidth !== null || resultSection.hidden) return;
+    const productWidth = getInitialProductColumnWidth();
+    if (productWidth <= 0) return;
     productColumnWidth = productWidth;
     productColumnDragWidth = productWidth;
     applyProductColumnWidth();
   });
+}
+
+function getInitialProductColumnWidth() {
+  const table = tableWrap?.querySelector("table");
+  const availableWidth = tableWrap?.clientWidth || 0;
+  if (!table || !availableWidth) return 0;
+  const otherColumnsWidth = getVisibleResultHeaders()
+    .filter((header) => header.dataset.column !== "product_name")
+    .reduce((sum, header) => sum + getResultColumnPixelWidth(header), 0);
+  const minWidth = 180;
+  return Math.max(minWidth, Math.floor(availableWidth - otherColumnsWidth));
 }
 
 function getResultColumnSpan() {
