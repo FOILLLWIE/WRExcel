@@ -47,6 +47,7 @@ const removeParenthesesText = optionInput("removeParenthesesText");
 const removeBracketsText = optionInput("removeBracketsText");
 const removeTrailingModelCode = optionInput("removeTrailingModelCode");
 const removeAfterDelimiter = optionInput("removeAfterDelimiter");
+const removeBeforeDelimiter = optionInput("removeBeforeDelimiter");
 const removeLeadingText = optionInput("removeLeadingText");
 const leadingTextOptions = qs('[data-role="option-panel"][data-option-panel="removeLeadingText"]');
 const leadingTextValue = qs('[data-role="option-value"][data-option="removeLeadingText"]');
@@ -280,7 +281,14 @@ removeParenthesesText.addEventListener("change", () => { renderFilteredResults()
 removeBracketsText.addEventListener("change", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
 removeTrailingModelCode.addEventListener("change", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
 removeAfterDelimiter.addEventListener("change", () => {
-  setElementHidden(delimiterOptions, !removeAfterDelimiter.checked);
+  if (removeAfterDelimiter.checked) removeBeforeDelimiter.checked = false;
+  updateDelimiterOptionsVisibility();
+  renderFilteredResults();
+  queueSaveCurrentSettings();
+});
+removeBeforeDelimiter.addEventListener("change", () => {
+  if (removeBeforeDelimiter.checked) removeAfterDelimiter.checked = false;
+  updateDelimiterOptionsVisibility();
   renderFilteredResults();
   queueSaveCurrentSettings();
 });
@@ -291,6 +299,9 @@ removeLeadingText.addEventListener("change", () => {
 });
 leadingTextValue.addEventListener("input", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
 delimiterValue.addEventListener("input", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
+function updateDelimiterOptionsVisibility() {
+  setElementHidden(delimiterOptions, !(removeAfterDelimiter.checked || removeBeforeDelimiter.checked));
+}
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".search-with-filter")) {
     setElementHidden(productFilterPanel, true);
@@ -1789,10 +1800,12 @@ function displayProductName(value) {
   if (removeTrailingModelCode.checked) {
     baseValue = baseValue.replace(/\s+[A-Z0-9]+(?:-[A-Z0-9]+)+$/i, "");
   }
-  if (removeAfterDelimiter.checked && delimiterValue.value) {
+  if (delimiterValue.value && (removeAfterDelimiter.checked || removeBeforeDelimiter.checked)) {
     const delimiterIndex = baseValue.indexOf(delimiterValue.value);
     if (delimiterIndex >= 0) {
-      baseValue = baseValue.slice(0, delimiterIndex);
+      baseValue = removeBeforeDelimiter.checked
+        ? baseValue.slice(delimiterIndex + delimiterValue.value.length)
+        : baseValue.slice(0, delimiterIndex);
     }
   }
 
@@ -2178,6 +2191,7 @@ function getProductCleanupOptions() {
     removeBracketsText: Boolean(removeBracketsText.checked),
     removeTrailingModelCode: Boolean(removeTrailingModelCode.checked),
     removeAfterDelimiter: Boolean(removeAfterDelimiter.checked),
+    removeBeforeDelimiter: Boolean(removeBeforeDelimiter.checked),
     removeLeadingText: Boolean(removeLeadingText.checked),
     leadingTextValue: leadingTextValue.value,
     delimiterValue: delimiterValue.value,
@@ -2191,12 +2205,14 @@ function applyProductCleanupOptions(options = {}) {
   removeBracketsText.checked = Boolean(options.removeBracketsText);
   removeTrailingModelCode.checked = Boolean(options.removeTrailingModelCode);
   removeAfterDelimiter.checked = Boolean(options.removeAfterDelimiter);
+  removeBeforeDelimiter.checked = Boolean(options.removeBeforeDelimiter);
+  if (removeAfterDelimiter.checked && removeBeforeDelimiter.checked) removeBeforeDelimiter.checked = false;
   removeLeadingText.checked = Boolean(options.removeLeadingText);
   leadingTextValue.value = options.leadingTextValue ?? "";
   delimiterValue.value = options.delimiterValue ?? "";
   titleCaseProductName.checked = Boolean(options.titleCaseProductName);
   setElementHidden(leadingTextOptions, !removeLeadingText.checked);
-  setElementHidden(delimiterOptions, !removeAfterDelimiter.checked);
+  updateDelimiterOptionsVisibility();
   renderProductFilterInputs();
 }
 
