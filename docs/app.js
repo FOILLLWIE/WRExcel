@@ -1246,8 +1246,9 @@ function normalizeBrowserFillColor(cell) {
 }
 
 function getEffectiveBrowserFillColor(worksheet, rowNumber, columnIndex) {
-  const directColor = normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, columnIndex));
-  return directColor || inferStatusConditionalFillColor(worksheet, rowNumber);
+  const conditionalColor = inferStatusConditionalFillColor(worksheet, rowNumber);
+  if (conditionalColor) return conditionalColor;
+  return normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, columnIndex));
 }
 
 function inferStatusConditionalFillColor(worksheet, rowNumber) {
