@@ -122,6 +122,7 @@ const GROUPED_PRODUCT_SEPARATOR = "\uFF5C";
 const GROUPED_PRODUCT_JOINER = ` ${GROUPED_PRODUCT_SEPARATOR} `;
 const rewardFieldNameSuggestions = ["\uC2A4\uB9C8\uC77C\uCE74\uB4DC", "\uBA38\uB2C8\uCDA9\uC804", "\uAF2D\uBA64\uBC841", "\uAF2D\uBA64\uBC842"];
 const worksheetMergeRangeCache = new WeakMap();
+const worksheetConditionalFillCache = new WeakMap();
 const worksheetStatusFillCache = new WeakMap();
 const CONDITIONAL_STATUS_RED = "FF0000";
 const columnFilters = {
@@ -1246,9 +1247,139 @@ function normalizeBrowserFillColor(cell) {
 }
 
 function getEffectiveBrowserFillColor(worksheet, rowNumber, columnIndex) {
-  const conditionalColor = inferStatusConditionalFillColor(worksheet, rowNumber);
+  const conditionalColor = inferConditionalFormattingFillColor(worksheet, rowNumber, columnIndex)
+    || inferStatusConditionalFillColor(worksheet, rowNumber);
   if (conditionalColor) return conditionalColor;
   return normalizeBrowserFillColor(getDisplayCell(worksheet, rowNumber, columnIndex));
+}
+
+function inferConditionalFormattingFillColor(worksheet, rowNumber, columnIndex) {
+  const colNumber = columnIndex + 1;
+  for (const item of getWorksheetConditionalFillRules(worksheet)) {
+    const matchedRange = item.ranges.find((range) => isCellInRange(rowNumber, colNumber, range));
+    if (!matchedRange) continue;
+    if (evaluateConditionalFillRule(worksheet, item.rule, rowNumber, columnIndex, item.anchor)) return item.color;
+  }
+  return null;
+}
+
+function getWorksheetConditionalFillRules(worksheet) {
+  if (worksheetConditionalFillCache.has(worksheet)) return worksheetConditionalFillCache.get(worksheet);
+  const groups = worksheet?.conditionalFormattings ?? worksheet?.model?.conditionalFormattings ?? [];
+  const items = [];
+  groups.forEach((group) => {
+    const ranges = parseRangeList(group.ref).filter(Boolean);
+    if (!ranges.length) return;
+    const anchor = ranges[0];
+    (group.rules ?? []).forEach((rule) => {
+      const color = normalizeExcelColor(rule?.style?.fill?.fgColor) || normalizeExcelColor(rule?.style?.fill?.bgColor);
+      if (!color) return;
+      items.push({ ranges, anchor, rule, color, priority: Number(rule.priority ?? 9999) });
+    });
+  });
+  items.sort((a, b) => a.priority - b.priority);
+  worksheetConditionalFillCache.set(worksheet, items);
+  return items;
+}
+
+function parseRangeList(ref) {
+  return String(ref || "").split(/\s+/).map(parseMergeRange).filter(Boolean);
+}
+
+function isCellInRange(rowNumber, colNumber, range) {
+  return rowNumber >= range.top && rowNumber <= range.bottom && colNumber >= range.left && colNumber <= range.right;
+}
+
+function evaluateConditionalFillRule(worksheet, rule, rowNumber, columnIndex, anchor) {
+  if (rule.type === "expression") {
+    return (rule.formulae ?? []).some((formula) => evaluateConditionalExpression(worksheet, formula, rowNumber, columnIndex, anchor));
+  }
+  if (rule.type === "cellIs") return evaluateCellIsRule(worksheet, rule, rowNumber, columnIndex);
+  return false;
+}
+
+function evaluateConditionalExpression(worksheet, formula, rowNumber, columnIndex, anchor) {
+  const text = String(formula || "").trim();
+  const orArgs = getFunctionArguments(text, "OR");
+  if (orArgs) return orArgs.some((part) => evaluateConditionalExpression(worksheet, part, rowNumber, columnIndex, anchor));
+  const andArgs = getFunctionArguments(text, "AND");
+  if (andArgs) return andArgs.every((part) => evaluateConditionalExpression(worksheet, part, rowNumber, columnIndex, anchor));
+  return evaluateConditionalTerm(worksheet, text, rowNumber, columnIndex, anchor);
+}
+
+function getFunctionArguments(text, name) {
+  const pattern = new RegExp(`^${name}\s*\((.*)\)$`, "i");
+  const match = text.match(pattern);
+  return match ? splitFormulaArguments(match[1]) : null;
+}
+
+function splitFormulaArguments(text) {
+  const result = [];
+  let depth = 0;
+  let quote = false;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '"') quote = !quote;
+    else if (!quote && char === "(") depth += 1;
+    else if (!quote && char === ")") depth -= 1;
+    else if (!quote && depth === 0 && char === ",") {
+      result.push(text.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  result.push(text.slice(start).trim());
+  return result.filter(Boolean);
+}
+
+function evaluateConditionalTerm(worksheet, term, rowNumber, columnIndex, anchor) {
+  const searchMatch = term.match(/^ISNUMBER\s*\(\s*SEARCH\s*\(\s*"([^"]*)"\s*,\s*(\$?[A-Z]+\$?\d+)\s*\)\s*\)$/i);
+  if (searchMatch) {
+    const value = getFormulaReferenceText(worksheet, searchMatch[2], rowNumber, columnIndex, anchor);
+    return value.includes(searchMatch[1]);
+  }
+  const equalMatch = term.match(/^(\$?[A-Z]+\$?\d+)\s*=\s*"([^"]*)"$/i);
+  if (equalMatch) return getFormulaReferenceText(worksheet, equalMatch[1], rowNumber, columnIndex, anchor) === equalMatch[2];
+  const notEqualMatch = term.match(/^(\$?[A-Z]+\$?\d+)\s*<>\s*"([^"]*)"$/i);
+  if (notEqualMatch) return getFormulaReferenceText(worksheet, notEqualMatch[1], rowNumber, columnIndex, anchor) !== notEqualMatch[2];
+  return false;
+}
+
+function getFormulaReferenceText(worksheet, reference, rowNumber, columnIndex, anchor) {
+  const cellRef = resolveFormulaCellReference(reference, rowNumber, columnIndex, anchor);
+  if (!cellRef) return "";
+  return String(cleanExcelCellValue(getDisplayCell(worksheet, cellRef.row, cellRef.col - 1).value) ?? "").trim();
+}
+
+function resolveFormulaCellReference(reference, rowNumber, columnIndex, anchor) {
+  const match = String(reference).match(/^(\$?)([A-Z]+)(\$?)(\d+)$/i);
+  if (!match) return null;
+  const formulaCol = columnNameToNumber(match[2]);
+  const formulaRow = Number(match[4]);
+  const col = match[1] ? formulaCol : formulaCol + ((columnIndex + 1) - anchor.left);
+  const row = match[3] ? formulaRow : formulaRow + (rowNumber - anchor.top);
+  return { row, col };
+}
+
+function evaluateCellIsRule(worksheet, rule, rowNumber, columnIndex) {
+  const cellValue = parseConditionalNumber(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, columnIndex).value));
+  const targetValue = parseConditionalNumber(rule.formulae?.[0]);
+  if (!Number.isFinite(cellValue) || !Number.isFinite(targetValue)) return false;
+  if (rule.operator === "greaterThan") return cellValue > targetValue;
+  if (rule.operator === "greaterThanOrEqual") return cellValue >= targetValue;
+  if (rule.operator === "lessThan") return cellValue < targetValue;
+  if (rule.operator === "lessThanOrEqual") return cellValue <= targetValue;
+  if (rule.operator === "equal") return cellValue === targetValue;
+  if (rule.operator === "notEqual") return cellValue !== targetValue;
+  return false;
+}
+
+function parseConditionalNumber(value) {
+  const text = String(value ?? "").trim().replace(/^"|"$/g, "");
+  if (!text) return NaN;
+  const isPercent = text.endsWith("%");
+  const parsed = parseBrowserNumber(text.replace(/%$/, ""));
+  return Number.isFinite(parsed) ? (isPercent ? parsed / 100 : parsed) : NaN;
 }
 
 function inferStatusConditionalFillColor(worksheet, rowNumber) {
