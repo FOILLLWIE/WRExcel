@@ -45,7 +45,6 @@ const productFilterList = qs('[data-role="product-filter-list"]');
 const addProductFilterButton = actionButton("add-product-filter");
 const removeParenthesesText = optionInput("removeParenthesesText");
 const removeBracketsText = optionInput("removeBracketsText");
-const removeTrailingModelCode = optionInput("removeTrailingModelCode");
 const removeAfterDelimiter = optionInput("removeAfterDelimiter");
 const removeBeforeDelimiter = optionInput("removeBeforeDelimiter");
 const removeLeadingText = optionInput("removeLeadingText");
@@ -279,7 +278,6 @@ addProductFilterButton.addEventListener("click", () => {
 });
 removeParenthesesText.addEventListener("change", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
 removeBracketsText.addEventListener("change", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
-removeTrailingModelCode.addEventListener("change", () => { renderFilteredResults(); queueSaveCurrentSettings(); });
 removeAfterDelimiter.addEventListener("change", () => {
   if (removeAfterDelimiter.checked) removeBeforeDelimiter.checked = false;
   updateDelimiterOptionsVisibility();
@@ -1797,9 +1795,6 @@ function displayProductName(value) {
     const escapedLeadingText = escapeRegExp(leadingTextValue.value.trim());
     baseValue = baseValue.replace(new RegExp(`^${escapedLeadingText}\\s*`, "i"), "");
   }
-  if (removeTrailingModelCode.checked) {
-    baseValue = baseValue.replace(/\s+[A-Z0-9]+(?:-[A-Z0-9]+)+$/i, "");
-  }
   if (delimiterValue.value && (removeAfterDelimiter.checked || removeBeforeDelimiter.checked)) {
     const delimiterIndex = baseValue.indexOf(delimiterValue.value);
     if (delimiterIndex >= 0) {
@@ -2189,7 +2184,6 @@ function getProductCleanupOptions() {
     filters: [...productNameFilters],
     removeParenthesesText: Boolean(removeParenthesesText.checked),
     removeBracketsText: Boolean(removeBracketsText.checked),
-    removeTrailingModelCode: Boolean(removeTrailingModelCode.checked),
     removeAfterDelimiter: Boolean(removeAfterDelimiter.checked),
     removeBeforeDelimiter: Boolean(removeBeforeDelimiter.checked),
     removeLeadingText: Boolean(removeLeadingText.checked),
@@ -2203,7 +2197,6 @@ function applyProductCleanupOptions(options = {}) {
   productNameFilters = Array.isArray(options.filters) ? [...options.filters] : [];
   removeParenthesesText.checked = Boolean(options.removeParenthesesText);
   removeBracketsText.checked = Boolean(options.removeBracketsText);
-  removeTrailingModelCode.checked = Boolean(options.removeTrailingModelCode);
   removeAfterDelimiter.checked = Boolean(options.removeAfterDelimiter);
   removeBeforeDelimiter.checked = Boolean(options.removeBeforeDelimiter);
   if (removeAfterDelimiter.checked && removeBeforeDelimiter.checked) removeBeforeDelimiter.checked = false;
