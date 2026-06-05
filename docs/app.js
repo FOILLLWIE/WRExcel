@@ -1084,7 +1084,7 @@ async function inspectExcelInBrowser() {
       preview_rows: visibleRows,
       preview_cols: visibleCols,
       preview_merges: previewMerges,
-      total_rows: worksheet.rowCount,
+      total_rows: suggestedEnd,
       total_cols: worksheet.columnCount,
       suggested_start_row: suggestedStart,
       suggested_end_row: suggestedEnd,
@@ -1238,20 +1238,19 @@ function parseBrowserNumber(value) {
 function suggestBrowserRowBounds(worksheet) {
   let first = null;
   let last = null;
-  for (let rowNumber = 1; rowNumber <= worksheet.rowCount; rowNumber += 1) {
-    if (isHiddenRow(worksheet, rowNumber)) continue;
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (isHiddenRow(worksheet, rowNumber)) return;
     let count = 0;
-    const row = worksheet.getRow(rowNumber);
-    for (let colNumber = 1; colNumber <= worksheet.columnCount; colNumber += 1) {
-      if (isHiddenColumn(worksheet, colNumber - 1)) continue;
-      if (cleanExcelCellValue(row.getCell(colNumber).value) !== "") count += 1;
-    }
+    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+      if (isHiddenColumn(worksheet, colNumber - 1)) return;
+      if (cleanExcelCellValue(cell.value) !== "") count += 1;
+    });
     if (count >= 2) {
       if (first === null) first = rowNumber;
       last = rowNumber;
     }
-  }
-  return [first ?? 1, last ?? Math.max(1, worksheet.rowCount)];
+  });
+  return [first ?? 1, last ?? first ?? 1];
 }
 
 function normalizeBrowserFillColor(cell) {
