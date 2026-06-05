@@ -3543,9 +3543,12 @@ function syncResultColumnWidths() {
   const computedWidths = headers.map((header) => getResultColumnPixelWidth(header));
   const productIndex = headers.findIndex((header) => header.dataset.column === "product_name");
   const availableWidth = tableWrap?.clientWidth || 0;
-  const totalBeforeFill = computedWidths.reduce((sum, width) => sum + width, 0);
-  if (!productColumnUserResized && productIndex >= 0 && availableWidth > totalBeforeFill) {
-    computedWidths[productIndex] += availableWidth - totalBeforeFill;
+  if (productIndex >= 0 && availableWidth > 0) {
+    const otherColumnsWidth = computedWidths.reduce((sum, width, index) => (
+      index === productIndex ? sum : sum + width
+    ), 0);
+    const fillProductWidth = Math.max(180, availableWidth - otherColumnsWidth);
+    computedWidths[productIndex] = Math.max(computedWidths[productIndex], fillProductWidth);
   }
   appliedResultColumnWidths = computedWidths;
   appliedProductColumnWidth = productIndex >= 0 ? computedWidths[productIndex] : productColumnWidth;
