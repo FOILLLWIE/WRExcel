@@ -137,6 +137,7 @@ if (window.location.protocol === "file:") {
 }
 let productColumnWidth = null;
 let productColumnDragWidth = null;
+let productColumnUserResized = false;
 let appliedProductColumnWidth = null;
 let appliedResultColumnWidths = [];
 
@@ -874,6 +875,7 @@ function normalizeInitialExtraTableWidth() {
     if (productWidth <= 0) return;
     productColumnWidth = productWidth;
     productColumnDragWidth = productWidth;
+    productColumnUserResized = false;
     applyProductColumnWidth();
   });
 }
@@ -3146,6 +3148,7 @@ function setStatus(message, type) {
 
 function hideResults() {
   productColumnDragWidth = null;
+  productColumnUserResized = false;
   setElementHidden(resultSection, true);
 }
 
@@ -3403,13 +3406,13 @@ function startProductColumnResize(event) {
   event.preventDefault();
   const startX = event.clientX;
   const visualStartWidth = productNameHeader.getBoundingClientRect().width;
-  const startWidth = productColumnDragWidth ?? productColumnWidth ?? visualStartWidth;
-  const fillGap = Math.max(0, visualStartWidth - startWidth);
+  const startWidth = visualStartWidth;
   const maxWidth = getMaxProductColumnWidth();
+  productColumnUserResized = true;
 
   function onPointerMove(moveEvent) {
-    const visualTargetWidth = visualStartWidth + moveEvent.clientX - startX;
-    productColumnDragWidth = clampProductColumnWidth(visualTargetWidth - fillGap, maxWidth, true);
+    const targetWidth = startWidth + moveEvent.clientX - startX;
+    productColumnDragWidth = clampProductColumnWidth(targetWidth, maxWidth, true);
     productColumnWidth = productColumnDragWidth;
     applyProductColumnWidth();
   }
@@ -3491,7 +3494,7 @@ function applyProductColumnWidth() {
     return;
   }
 
-  productColumnWidth = clampProductColumnWidth(productColumnWidth);
+  productColumnWidth = clampProductColumnWidth(productColumnWidth, getMaxProductColumnWidth(), productColumnUserResized);
   productCells.forEach((cell) => {
     cell.style.width = `${productColumnWidth}px`;
     cell.style.minWidth = `${productColumnWidth}px`;
@@ -3541,7 +3544,7 @@ function syncResultColumnWidths() {
   const productIndex = headers.findIndex((header) => header.dataset.column === "product_name");
   const availableWidth = tableWrap?.clientWidth || 0;
   const totalBeforeFill = computedWidths.reduce((sum, width) => sum + width, 0);
-  if (productIndex >= 0 && availableWidth > totalBeforeFill) {
+  if (!productColumnUserResized && productIndex >= 0 && availableWidth > totalBeforeFill) {
     computedWidths[productIndex] += availableWidth - totalBeforeFill;
   }
   appliedResultColumnWidths = computedWidths;
