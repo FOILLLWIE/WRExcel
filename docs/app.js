@@ -3409,7 +3409,7 @@ function startProductColumnResize(event) {
 
   function onPointerMove(moveEvent) {
     const visualTargetWidth = visualStartWidth + moveEvent.clientX - startX;
-    productColumnDragWidth = clampProductColumnWidth(visualTargetWidth - fillGap, maxWidth);
+    productColumnDragWidth = clampProductColumnWidth(visualTargetWidth - fillGap, maxWidth, true);
     productColumnWidth = productColumnDragWidth;
     applyProductColumnWidth();
   }
@@ -3423,8 +3423,9 @@ function startProductColumnResize(event) {
   window.addEventListener("pointerup", onPointerUp);
 }
 
-function clampProductColumnWidth(width, maxWidth = getMaxProductColumnWidth()) {
-  return Math.max(getMinProductColumnWidth(), Math.min(Math.round(width), maxWidth));
+function clampProductColumnWidth(width, maxWidth = getMaxProductColumnWidth(), isUserResize = false) {
+  const minWidth = isUserResize ? 180 : getMinProductColumnWidth();
+  return Math.max(minWidth, Math.min(Math.round(width), maxWidth));
 }
 
 function getMinProductColumnWidth() {
