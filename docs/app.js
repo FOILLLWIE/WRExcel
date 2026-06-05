@@ -3499,7 +3499,8 @@ function applyProductColumnWidth() {
     return;
   }
 
-  productColumnWidth = clampProductColumnWidth(productColumnWidth, getMaxProductColumnWidth(), productColumnUserResized);
+  const maxWidth = productColumnUserResized ? getManualProductColumnMaxWidth() : getMaxProductColumnWidth();
+  productColumnWidth = clampProductColumnWidth(productColumnWidth, maxWidth, productColumnUserResized);
   productCells.forEach((cell) => {
     cell.style.width = `${productColumnWidth}px`;
     cell.style.minWidth = `${productColumnWidth}px`;
