@@ -2200,7 +2200,11 @@ function canRestoreResultSnapshot(snapshot, config) {
   }
   if (hasActiveColorFilter()) return false;
   const snapshotMapping = snapshot.mapping ?? config.mapping ?? {};
-  return isSameMapping(snapshotMapping, getCurrentMappingSnapshot());
+  const snapshotExtraFields = (snapshot.extraFields ?? config.extraFields ?? []).map(normalizeExtraFieldConfig);
+  const snapshotRewardFields = (snapshot.rewardFields ?? config.rewardFields ?? []).map(normalizeRewardFieldConfig);
+  return isSameMapping(snapshotMapping, getCurrentMappingSnapshot())
+    && stableSettingsString(snapshotExtraFields) === stableSettingsString(serializeExtraFields())
+    && stableSettingsString(snapshotRewardFields) === stableSettingsString(serializeRewardFields());
 }
 
 function getProductCleanupOptions() {
@@ -2809,6 +2813,7 @@ function normalizeColumnIndexValue(value) {
 function persistDynamicColumnInput(input, colIndex = null) {
   const card = input.closest(".extra-field-card, .reward-field-card");
   if (!card) return;
+  clearRestoredResultSnapshot();
   const parsed = colIndex ?? normalizeColumnIndexValue(input.value);
   const value = parsed === null ? "" : parsed;
   const role = input.dataset.role;
