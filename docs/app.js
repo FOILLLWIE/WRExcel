@@ -122,6 +122,7 @@ const GROUPED_PRODUCT_SEPARATOR = "\uFF5C";
 const GROUPED_PRODUCT_JOINER = ` ${GROUPED_PRODUCT_SEPARATOR} `;
 const rewardFieldNameSuggestions = ["\uC2A4\uB9C8\uC77C\uCE74\uB4DC", "\uBA38\uB2C8\uCDA9\uC804", "\uAF2D\uBA64\uBC841", "\uAF2D\uBA64\uBC842"];
 const worksheetMergeRangeCache = new WeakMap();
+const worksheetRowBoundsCache = new WeakMap();
 const worksheetConditionalFillCache = new WeakMap();
 const worksheetStatusFillCache = new WeakMap();
 const CONDITIONAL_STATUS_RED = "FF0000";
@@ -1236,6 +1237,7 @@ function parseBrowserNumber(value) {
 }
 
 function suggestBrowserRowBounds(worksheet) {
+  if (worksheetRowBoundsCache.has(worksheet)) return worksheetRowBoundsCache.get(worksheet);
   let first = null;
   let last = null;
   worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
@@ -1250,7 +1252,9 @@ function suggestBrowserRowBounds(worksheet) {
       last = rowNumber;
     }
   });
-  return [first ?? 1, last ?? first ?? 1];
+  const bounds = [first ?? 1, last ?? first ?? 1];
+  worksheetRowBoundsCache.set(worksheet, bounds);
+  return bounds;
 }
 
 function normalizeBrowserFillColor(cell) {
@@ -1471,8 +1475,9 @@ async function columnColorsInBrowser(fields) {
   const columnIndex = Number(fields.column_index);
   if (isHiddenColumn(worksheet, columnIndex)) return { colors: [] };
   const counts = new Map();
+  const [, effectiveLastRow] = suggestBrowserRowBounds(worksheet);
   const start = Math.max(Number(fields.start_row || 1), 1);
-  const end = Math.min(Number(fields.end_row || worksheet.rowCount), worksheet.rowCount);
+  const end = Math.min(Number(fields.end_row || effectiveLastRow), effectiveLastRow, worksheet.rowCount);
   for (let rowNumber = start; rowNumber <= end; rowNumber += 1) {
     if (isHiddenRow(worksheet, rowNumber)) continue;
     const cell = getDisplayCell(worksheet, rowNumber, columnIndex);
@@ -1510,8 +1515,9 @@ async function calculateExcelInBrowser(fields) {
 
   const rows = [];
   let activeCategoryName = "";
+  const [, effectiveLastRow] = suggestBrowserRowBounds(worksheet);
   const start = Math.max(Number(fields.start_row || 1), 1);
-  const end = Math.min(Number(fields.end_row || worksheet.rowCount), worksheet.rowCount);
+  const end = Math.min(Number(fields.end_row || effectiveLastRow), effectiveLastRow, worksheet.rowCount);
   for (let rowNumber = start; rowNumber <= end; rowNumber += 1) {
     if (isHiddenRow(worksheet, rowNumber)) continue;
     const row = worksheet.getRow(rowNumber);
