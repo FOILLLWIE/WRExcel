@@ -203,6 +203,7 @@ addRewardFieldButton.addEventListener("click", addRewardField);
 
 calculateButton.addEventListener("click", async () => {
   syncTypedColumns();
+  syncDynamicFieldsFromDom();
   if (!productColumn.dataset.index || !originalColumn.dataset.index || !finalPriceColumn.dataset.index) {
     setStatus("제품명 열, 기존금액 열, 최종가 열을 모두 선택해주세요.", "error");
     return;
@@ -1741,6 +1742,17 @@ function clearRestoredResultSnapshot() {
   resultSnapshotDirty = true;
 }
 
+function syncDynamicFieldsFromDom() {
+  extraFieldsList.querySelectorAll(".extra-field-card").forEach((card) => {
+    const field = extraFields.find((item) => item.id === card.dataset.fieldId);
+    if (field) updateExtraFieldFromCard(field, card);
+  });
+  rewardFieldsList.querySelectorAll(".reward-field-card").forEach((card) => {
+    const field = rewardFields.find((item) => item.id === card.dataset.fieldId);
+    if (field) updateRewardFieldFromCard(field, card);
+  });
+}
+
 function syncTypedColumns() {
   [productColumn, originalColumn, finalPriceColumn, categoryColumn].forEach((input) => {
     const parsed = parseColumnInput(input.value);
@@ -1868,6 +1880,7 @@ function applyPriceHighlighting() {
 }
 
 function addExtraField() {
+  clearRestoredResultSnapshot();
   extraFields.push({
     id: crypto.randomUUID(),
     name: "",
@@ -1884,6 +1897,7 @@ function addExtraField() {
 }
 
 function addRewardField() {
+  clearRestoredResultSnapshot();
   rewardFields.push({
     id: crypto.randomUUID(),
     name: "",
@@ -1978,6 +1992,7 @@ function renderExtraFieldInputs() {
       input.addEventListener("input", () => {
         updateExtraFieldFromCard(field, card);
         persistDynamicColumnInput(input);
+        clearRestoredResultSnapshot();
         queueSaveCurrentSettings();
       });
     });
@@ -1985,6 +2000,7 @@ function renderExtraFieldInputs() {
       updateExtraFieldFromCard(field, card);
       updateExtraNameVisibility(card, field.name_choice);
       activateDynamicFieldColumnTarget(card);
+      clearRestoredResultSnapshot();
       queueSaveCurrentSettings();
     });
     const customToggle = card.querySelector(".extra-custom-select-toggle");
@@ -2002,6 +2018,7 @@ function renderExtraFieldInputs() {
         syncCustomSelect(nameSelect);
         activateDynamicFieldColumnTarget(card);
         customMenu.classList.add("hidden");
+        clearRestoredResultSnapshot();
         queueSaveCurrentSettings();
       });
     });
@@ -2009,10 +2026,12 @@ function renderExtraFieldInputs() {
       updateExtraFieldFromCard(field, card);
       updateExtraFieldVisibility(card, field.mode);
       activateDynamicFieldColumnTarget(card);
+      clearRestoredResultSnapshot();
       queueSaveCurrentSettings();
     });
     card.querySelector(".extra-field-remove").addEventListener("click", () => {
       extraFields = extraFields.filter((item) => item.id !== field.id);
+      clearRestoredResultSnapshot();
       renderExtraFieldInputs();
       queueSaveCurrentSettings();
     });
@@ -2892,6 +2911,7 @@ function renderRewardFieldInputs() {
       input.addEventListener("input", () => {
         updateRewardFieldFromCard(field, card);
         persistDynamicColumnInput(input);
+        clearRestoredResultSnapshot();
         queueSaveCurrentSettings();
       });
     });
@@ -2899,6 +2919,7 @@ function renderRewardFieldInputs() {
       updateRewardFieldFromCard(field, card);
       updateRewardNameVisibility(card, field.name_choice);
       activateDynamicFieldColumnTarget(card);
+      clearRestoredResultSnapshot();
       queueSaveCurrentSettings();
     });
     const customToggle = card.querySelector(".extra-custom-select-toggle");
@@ -2916,11 +2937,13 @@ function renderRewardFieldInputs() {
         syncCustomSelect(nameSelect);
         activateDynamicFieldColumnTarget(card);
         customMenu.classList.add("hidden");
+        clearRestoredResultSnapshot();
         queueSaveCurrentSettings();
       });
     });
     card.querySelector(".extra-field-remove").addEventListener("click", () => {
       rewardFields = rewardFields.filter((item) => item.id !== field.id);
+      clearRestoredResultSnapshot();
       renderRewardFieldInputs();
       queueSaveCurrentSettings();
     });
