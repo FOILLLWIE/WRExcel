@@ -3407,7 +3407,7 @@ function startProductColumnResize(event) {
   const startX = event.clientX;
   const visualStartWidth = productNameHeader.getBoundingClientRect().width;
   const startWidth = visualStartWidth;
-  const maxWidth = getMaxProductColumnWidth();
+  const maxWidth = getManualProductColumnMaxWidth();
   productColumnUserResized = true;
 
   function onPointerMove(moveEvent) {
@@ -3443,6 +3443,11 @@ function getMinProductColumnWidth() {
 
 function getMaxProductColumnWidth() {
   return Math.max(260, Math.ceil(measureMaxProductNameWidth()));
+}
+
+function getManualProductColumnMaxWidth() {
+  const wrapWidth = tableWrap?.clientWidth || window.innerWidth || 0;
+  return Math.max(getMaxProductColumnWidth(), wrapWidth * 3, 2400);
 }
 
 function scheduleResultColumnLayoutSync() {
