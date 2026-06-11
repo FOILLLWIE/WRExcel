@@ -165,13 +165,15 @@ fileInput.addEventListener("change", async (event) => {
 sheetUrlImportButton?.addEventListener("click", async () => {
   const url = sheetUrlInput?.value?.trim();
   if (!url) {
-    showMessageDialog("\uBD88\uB7EC\uC62C Google Sheets URL\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    showMessageDialog("불러올 Sheets URL을 입력해주세요.");
     return;
   }
   try {
-    setImportingSheetUrl(true);
-    const file = await fetchGoogleSheetAsXlsxFile(url);
-    await loadWorkbookFile(file, { sourceLabel: "\uC628\uB77C\uC778 \uC2DC\uD2B8" });
+    setImportingSheetUrl(true, "Sheets 변환 중...");
+    setStatus("Sheets를 XLSX로 변환하고 있습니다...", "success");
+    const file = await fetchSheetsAsXlsxFile(url);
+    setImportingSheetUrl(true, "Sheets 분석 중...");
+    await loadWorkbookFile(file, { sourceLabel: "Sheets" });
   } catch (error) {
     setStatus(error.message, "error");
   } finally {
@@ -2144,15 +2146,15 @@ function isLegacyXlsFile(file) {
   return name.endsWith(".xls") && !name.endsWith(".xlsx");
 }
 
-function parseGoogleSheetUrl(value) {
+function parseSheetsUrl(value) {
   let url;
   try {
     url = new URL(value);
   } catch {
-    throw new Error("올바른 Google Sheets URL을 입력해주세요.");
+    throw new Error("올바른 Sheets URL을 입력해주세요.");
   }
   const idMatch = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
-  if (!idMatch) throw new Error("Google Sheets 링크만 불러올 수 있습니다.");
+  if (!idMatch) throw new Error("Sheets 링크만 불러올 수 있습니다.");
   const hashParams = new URLSearchParams(String(url.hash || "").replace(/^#/, ""));
   return {
     id: idMatch[1],
@@ -2160,40 +2162,40 @@ function parseGoogleSheetUrl(value) {
   };
 }
 
-function buildGoogleSheetExportUrl({ id, gid }) {
+function buildSheetsExportUrl({ id, gid }) {
   const exportUrl = new URL(`https://docs.google.com/spreadsheets/d/${id}/export`);
   exportUrl.searchParams.set("format", "xlsx");
   exportUrl.searchParams.set("gid", gid || "0");
   return exportUrl.toString();
 }
 
-async function fetchGoogleSheetAsXlsxFile(url) {
-  const sheet = parseGoogleSheetUrl(url);
-  const exportUrl = buildGoogleSheetExportUrl(sheet);
+async function fetchSheetsAsXlsxFile(url) {
+  const sheet = parseSheetsUrl(url);
+  const exportUrl = buildSheetsExportUrl(sheet);
   let response;
   try {
     response = await fetch(exportUrl, { credentials: "omit" });
   } catch {
-    throw new Error("Google Sheets를 직접 불러오지 못했습니다. 시트 공유 권한을 '링크가 있는 모든 사용자 보기'로 바꾼 뒤 다시 시도해주세요.");
+    throw new Error("Sheets를 직접 불러오지 못했습니다. 시트 공유 권한을 '링크가 있는 모든 사용자 보기'로 바꿀 뒤 다시 시도해주세요.");
   }
   if (!response.ok) {
-    throw new Error("Google Sheets를 XLSX로 내보내지 못했습니다. 공유 권한을 확인해주세요.");
+    throw new Error("Sheets를 XLSX로 내보내지 못했습니다. 공유 권한을 확인해주세요.");
   }
   const blob = await response.blob();
   if (blob.type.includes("text/html")) {
     throw new Error("시트 대신 로그인/권한 확인 페이지가 내려왔습니다. 공유 권한을 확인해주세요.");
   }
-  const name = `GoogleSheet_${sheet.id}_${sheet.gid || 0}.xlsx`;
+  const name = `Sheets_${sheet.id}_${sheet.gid || 0}.xlsx`;
   return new File([blob], name, {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     lastModified: 0,
   });
 }
 
-function setImportingSheetUrl(isLoading) {
+function setImportingSheetUrl(isLoading, label = "\uBD88\uB7EC\uC624\uB294 \uC911...") {
   if (!sheetUrlImportButton) return;
   sheetUrlImportButton.disabled = isLoading;
-  sheetUrlImportButton.textContent = isLoading ? "불러오는 중..." : "URL 불러오기";
+  sheetUrlImportButton.textContent = isLoading ? label : "URL \uBD88\uB7EC\uC624\uAE30";
 }
 
 function createFileSignature(file) {
