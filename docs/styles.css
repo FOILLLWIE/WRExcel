@@ -863,6 +863,69 @@ h1 {
   font-size: 1rem;
 }
 
+.sheet-url-import {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sheet-url-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.sheet-url-divider::before,
+.sheet-url-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.sheet-url-label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.sheet-url-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.sheet-url-row input {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.82);
+  font: inherit;
+}
+
+.sheet-url-row input:focus {
+  outline: none;
+  border-color: rgba(154, 91, 42, 0.6);
+  box-shadow: 0 0 0 3px rgba(154, 91, 42, 0.14);
+}
+
+.sheet-url-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+@media (max-width: 680px) {
+  .sheet-url-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .file-subtitle,
 .hint,
 .section-heading p {

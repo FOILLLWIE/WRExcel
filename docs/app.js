@@ -9,6 +9,9 @@ const actionButton = (action) => qs(`[data-role="action"][data-action="${action}
 
 const fileInput = qs('[data-role="file-input"]');
 const fileDrop = qs(".file-drop");
+const fileTitle = qs(".file-title");
+const sheetUrlInput = qs('[data-role="sheet-url-input"]');
+const sheetUrlImportButton = actionButton("import-sheet-url");
 const statusCard = qs('[data-role="status"]');
 const mappingSection = qs('[data-section="mapping"]');
 const resultSection = qs('[data-section="results"]');
@@ -156,7 +159,36 @@ tableWrap?.addEventListener("scroll", updateFloatingResultHeader, { passive: tru
 fileInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
+  await loadWorkbookFile(file);
+});
+
+sheetUrlImportButton?.addEventListener("click", async () => {
+  const url = sheetUrlInput?.value?.trim();
+  if (!url) {
+    showMessageDialog("\uBD88\uB7EC\uC62C Google Sheets URL\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    return;
+  }
+  try {
+    setImportingSheetUrl(true);
+    const file = await fetchGoogleSheetAsXlsxFile(url);
+    await loadWorkbookFile(file, { sourceLabel: "\uC628\uB77C\uC778 \uC2DC\uD2B8" });
+  } catch (error) {
+    setStatus(error.message, "error");
+  } finally {
+    setImportingSheetUrl(false);
+  }
+});
+
+sheetUrlInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    sheetUrlImportButton?.click();
+  }
+});
+
+async function loadWorkbookFile(file, { sourceLabel = "\uC5D1\uC140" } = {}) {
   uploadedFile = file;
+  excelWorkbook = null;
   currentFileKey = createFileKey(file);
   currentFileContentHash = await createFileContentHash(file);
   activeFileSettingsConfig = null;
@@ -164,16 +196,17 @@ fileInput.addEventListener("change", async (event) => {
   lastResultMapping = null;
   resultSnapshotDirty = false;
   fileDrop.classList.add("uploaded");
+  if (fileTitle) fileTitle.textContent = file.name;
   hideResults();
   extraFields = [];
   rewardFields = [];
   renderExtraFieldInputs();
   renderRewardFieldInputs();
-  setStatus("엑셀 내용을 읽고 있습니다...", "success");
+  setStatus(`${sourceLabel} \uB0B4\uC6A9\uC744 \uC77D\uACE0 \uC788\uC2B5\uB2C8\uB2E4...`, "success");
   try {
     workbookPreview = await postFile("/api/inspect");
     if (!workbookPreview.sheets?.length) {
-      throw new Error("이 파일은 구형 .xls 형식이라 바로 읽을 수 없습니다. Excel에서 .xlsx 형식으로 다시 저장한 뒤 업로드해주세요.");
+      throw new Error("\uC774 \uD30C\uC77C\uC740 \uAD6C\uD615 .xls \uD615\uC2DD\uC774\uB77C \uBC14\uB85C \uC77D\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. Excel\uC5D0\uC11C .xlsx \uD615\uC2DD\uC73C\uB85C \uB2E4\uC2DC \uC800\uC7A5\uD55C \uB4A4 \uC5C5\uB85C\uB4DC\uD574\uC8FC\uC138\uC694.");
     }
     populateSheetSelect(workbookPreview.sheets);
     renderSheet(workbookPreview.sheets[0].name);
@@ -185,11 +218,11 @@ fileInput.addEventListener("change", async (event) => {
       if (hasMatchingResultSnapshot(savedConfig)) activeResultSnapshotConfig = savedConfig;
       showRestoreDialog();
     }
-    setStatus("파일을 읽었습니다. 계산에 사용할 위치를 선택하세요.", "success");
+    setStatus(`${sourceLabel}\uB97C \uC77D\uC5C8\uC2B5\uB2C8\uB2E4. \uACC4\uC0B0\uC5D0 \uC0AC\uC6A9\uD560 \uC704\uCE58\uB97C \uC120\uD0DD\uD558\uC138\uC694.`, "success");
   } catch (error) {
     setStatus(error.message, "error");
   }
-});
+}
 
 sheetSelect.addEventListener("change", () => {
   renderSheet(sheetSelect.value);
@@ -995,10 +1028,10 @@ function getCategoryForNewResultRow() {
     const selectedRow = currentRows.find((row) => String(row.row_id) === String(selectedRowId));
     if (selectedRow?.category_name) return selectedRow.category_name;
   }
-  if (lastActiveCategoryKey && lastActiveCategoryKey !== "???") return lastActiveCategoryKey;
+  if (lastActiveCategoryKey && lastActiveCategoryKey !== "\uBBF8\uBD84\uB958") return lastActiveCategoryKey;
   const groups = groupRowsByCategory(currentRows);
   const lastGroup = groups[groups.length - 1];
-  return lastGroup?.[0] === "???" ? "" : (lastGroup?.[0] ?? "");
+  return lastGroup?.[0] === "\uBBF8\uBD84\uB958" ? "" : (lastGroup?.[0] ?? "");
 }
 
 function createEmptyResultRow(categoryName = "") {
@@ -2109,6 +2142,58 @@ function serializeRewardFields() {
 function isLegacyXlsFile(file) {
   const name = String(file?.name ?? "").toLowerCase();
   return name.endsWith(".xls") && !name.endsWith(".xlsx");
+}
+
+function parseGoogleSheetUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("올바른 Google Sheets URL을 입력해주세요.");
+  }
+  const idMatch = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
+  if (!idMatch) throw new Error("Google Sheets 링크만 불러올 수 있습니다.");
+  const hashParams = new URLSearchParams(String(url.hash || "").replace(/^#/, ""));
+  return {
+    id: idMatch[1],
+    gid: url.searchParams.get("gid") || hashParams.get("gid") || "0",
+  };
+}
+
+function buildGoogleSheetExportUrl({ id, gid }) {
+  const exportUrl = new URL(`https://docs.google.com/spreadsheets/d/${id}/export`);
+  exportUrl.searchParams.set("format", "xlsx");
+  exportUrl.searchParams.set("gid", gid || "0");
+  return exportUrl.toString();
+}
+
+async function fetchGoogleSheetAsXlsxFile(url) {
+  const sheet = parseGoogleSheetUrl(url);
+  const exportUrl = buildGoogleSheetExportUrl(sheet);
+  let response;
+  try {
+    response = await fetch(exportUrl, { credentials: "omit" });
+  } catch {
+    throw new Error("Google Sheets를 직접 불러오지 못했습니다. 시트 공유 권한을 '링크가 있는 모든 사용자 보기'로 바꾼 뒤 다시 시도해주세요.");
+  }
+  if (!response.ok) {
+    throw new Error("Google Sheets를 XLSX로 내보내지 못했습니다. 공유 권한을 확인해주세요.");
+  }
+  const blob = await response.blob();
+  if (blob.type.includes("text/html")) {
+    throw new Error("시트 대신 로그인/권한 확인 페이지가 내려왔습니다. 공유 권한을 확인해주세요.");
+  }
+  const name = `GoogleSheet_${sheet.id}_${sheet.gid || 0}.xlsx`;
+  return new File([blob], name, {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    lastModified: 0,
+  });
+}
+
+function setImportingSheetUrl(isLoading) {
+  if (!sheetUrlImportButton) return;
+  sheetUrlImportButton.disabled = isLoading;
+  sheetUrlImportButton.textContent = isLoading ? "불러오는 중..." : "URL 불러오기";
 }
 
 function createFileSignature(file) {
@@ -3469,7 +3554,7 @@ function measureMaxProductNameWidth() {
 
   const names = currentRows.length > 0
     ? currentRows.map((row) => displayProductName(row.product_name ?? ""))
-    : [productNameHeader.textContent ?? "???"];
+    : [productNameHeader.textContent ?? "\uC81C\uD488\uBA85"];
   const maxTextWidth = names.reduce((maxWidth, name) => {
     measuringElement.textContent = name;
     return Math.max(maxWidth, measuringElement.getBoundingClientRect().width);
