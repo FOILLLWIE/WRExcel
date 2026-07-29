@@ -1816,8 +1816,9 @@ function formatCurrency(value) {
 }
 
 function formatTotalDiscount(value) {
-  const prefix = showDiscountMinus.checked ? "-" : "";
-  return `${prefix}${formatCurrency(value)}`;
+  const numericValue = Number(value) || 0;
+  const prefix = showDiscountMinus.checked && numericValue > 0 ? "-" : "";
+  return `${prefix}${formatCurrency(Math.abs(numericValue))}`;
 }
 
 function formatRate(value) {
