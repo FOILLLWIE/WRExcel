@@ -1484,7 +1484,6 @@ th {
 
 .total-discount-column.discount-warning .copy-value {
   color: var(--danger);
-  font-weight: 800;
 }
 
 .total-discount-column.discount-warning .copy-value:hover {
