@@ -818,6 +818,7 @@ function renderFilteredResults() {
       .join("");
     const dragControl = isEditMode ? `<button class="row-drag-handle" type="button" draggable="true" data-drag-row="${escapeAttribute(row.row_id)}" aria-label="행 이동">⋮⋮</button>` : "";
     const deleteControl = isEditMode ? `<button class="row-delete-button" type="button" data-delete-row="${escapeAttribute(row.row_id)}" aria-label="행 삭제">×</button>` : "";
+    const totalDiscountWarningClass = Number(row.total_discount_amount) < 0 ? " discount-warning" : "";
     tr.innerHTML = `
       <td data-column="product_name"><div class="product-cell-content">${dragControl}${deleteControl}${buildProductNameCopyCell(displayProductName(row.product_name ?? ""))}</div></td>
       <td data-column="original_price">${buildCopyCell(formatCurrency(row.original_price))}</td>
@@ -826,7 +827,7 @@ function renderFilteredResults() {
       ${rewardCells}
       <td class="reward-column${rewardFields.length === 0 ? " reward-group-start" : ""}" data-column="total_reward_amount">${buildCopyCell(formatCurrency(row.total_reward_amount ?? 0))}</td>
       <td class="reward-column reward-group-end" data-column="effective_price">${buildCopyCell(formatCurrency(row.effective_price ?? row.discount_amount))}</td>
-      <td data-column="total_discount_amount">${buildCopyCell(formatTotalDiscount(row.total_discount_amount))}</td>
+      <td class="total-discount-column${totalDiscountWarningClass}" data-column="total_discount_amount">${buildCopyCell(formatTotalDiscount(row.total_discount_amount))}</td>
       <td data-column="discount_rate">${buildCopyCell(formatRate(row.discount_rate))}</td>
     `;
     tr.querySelectorAll("[data-copy-value]").forEach((button) => {
