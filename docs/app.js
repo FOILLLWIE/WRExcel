@@ -534,6 +534,25 @@ function renderSheet(sheetName) {
   previewTable.appendChild(body);
 }
 
+function updatePreviewColumnHighlights() {
+  const selections = [
+    [productColumn, "selected-product"],
+    [originalColumn, "selected-original"],
+    [finalPriceColumn, "selected-discount"],
+    [categoryColumn, "selected-discount"],
+    ...Array.from(document.querySelectorAll(
+      '.extra-field-card [data-field]:not(.hidden-field) input, .reward-field-card input[data-role="source_col"]',
+    ), (input) => [input, "selected-discount"]),
+  ];
+  const columns = selections.map(([input, className]) => [parseColumnInput(input.value), className]);
+  previewTable.querySelectorAll("td[data-col]").forEach((cell) => {
+    cell.classList.remove("selected-product", "selected-original", "selected-discount");
+    columns.forEach(([index, className]) => {
+      if (index !== null && index === Number(cell.dataset.col)) cell.classList.add(className);
+    });
+  });
+}
+
 function selectCell(cell) {
   const colIndex = Number(cell.dataset.col);
   const rowNumber = Number(cell.dataset.row);
@@ -558,15 +577,7 @@ function selectCell(cell) {
   }
   if (activePick !== "extra" && autoLoadColorFilters.checked) loadColumnColors(activePick);
 
-  previewTable.querySelectorAll(`td[data-col="${colIndex}"]`).forEach((node) => {
-    node.classList.add(
-      activePick === "product"
-        ? "selected-product"
-        : activePick === "original"
-          ? "selected-original"
-          : "selected-discount",
-    );
-  });
+  updatePreviewColumnHighlights();
 
   if (activePick === "product") setActivePick("original");
   else if (activePick === "original") setActivePick("final");
@@ -584,6 +595,7 @@ function selectCell(cell) {
       if (parsed !== null && autoLoadColorFilters.checked) loadColumnColors(colorKey);
       else resetColumnColors(colorKey);
     }
+    updatePreviewColumnHighlights();
     updateCalculateButtonState();
     queueSaveCurrentSettings();
   });
