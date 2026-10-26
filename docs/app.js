@@ -11,6 +11,7 @@ const fileTitle = qs(".file-title");
 const sheetUrlInput = qs('[data-role="sheet-url-input"]');
 const sheetUrlImportButton = actionButton("import-sheet-url");
 const statusCard = qs('[data-role="status"]');
+const settingsSaveStatus = qs('[data-role="settings-save-status"]');
 const mappingSection = qs('[data-section="mapping"]');
 const resultSection = qs('[data-section="results"]');
 const sheetSelect = selectInput("sheet");
@@ -36,6 +37,10 @@ const itemCount = qs('[data-role="item-count"]');
 const resultBody = qs('[data-role="result-body"]');
 const editResultsButton = actionButton("toggle-edit-results");
 const cancelEditResultsButton = actionButton("cancel-edit-results");
+const undoEditButton = actionButton("undo-edit");
+const resultReview = qs('[data-role="result-review"]');
+const reviewSummary = qs('[data-role="review-summary"]');
+const reviewItems = qs('[data-role="review-items"]');
 const addResultRowButton = actionButton("add-result-row");
 const editAddRowWrap = qs('[data-role="edit-add-row-wrap"]');
 const expandResultsButton = actionButton("toggle-expand-results");
@@ -103,12 +108,15 @@ let resultSnapshotDirty = false;
 let currentFileKey = "";
 let currentFileContentHash = "";
 let settingsSaveTimer = null;
+let settingsSaveRevision = 0;
+let settingsSaveState = "idle";
 let floatingHeader = null;
 let floatingHeaderTable = null;
 let floatingCategory = null;
 let activeInlineEdit = null;
 let editRowsSnapshot = null;
 let editSortSnapshot = null;
+let lastEditAction = null;
 let draggedResultRowId = null;
 let lastActiveCategoryKey = "";
 const DB_NAME = "discountCalculatorDB";
@@ -187,6 +195,9 @@ sheetUrlInput?.addEventListener("keydown", (event) => {
 });
 
 async function loadWorkbookFile(file, { sourceLabel = "\uC5D1\uC140" } = {}) {
+  window.clearTimeout(settingsSaveTimer);
+  settingsSaveRevision += 1;
+  setSettingsSaveStatus("idle");
   uploadedFile = file;
   excelWorkbook = null;
   currentFileKey = createFileKey(file);
@@ -410,9 +421,25 @@ cancelEditResultsButton.addEventListener("click", () => {
   renderFilteredResults();
   queueSaveCurrentSettings();
 });
+undoEditButton.addEventListener("click", () => {
+  if (!isEditMode) return;
+  commitInlineEdit(false);
+  if (!lastEditAction) return;
+  const previous = lastEditAction;
+  lastEditAction = null;
+  currentRows = cloneRows(previous.rows);
+  selectedRowId = previous.selectedRowId;
+  if (!previous.hadCustomSort) removeCustomSortOption();
+  sortField.value = previous.sort.field;
+  sortDirection.value = previous.sort.direction;
+  syncCustomSelect(sortField);
+  syncCustomSelect(sortDirection);
+  renderFilteredResults();
+});
 if (addResultRowButton) {
   addResultRowButton.addEventListener("click", () => {
     commitInlineEdit(false);
+    rememberEditAction();
     const row = createEmptyResultRow();
     currentRows.push(row);
     selectedRowId = String(row.row_id);
@@ -767,6 +794,7 @@ function refreshResultLayoutAfterRender() {
 function renderFilteredResults() {
   resultBody.innerHTML = "";
   itemCount.textContent = `${currentRows.length}개`;
+  renderResultReview();
 
   const keyword = productSearch.value.trim().toLowerCase();
   const rows = currentRows
@@ -807,6 +835,7 @@ function renderFilteredResults() {
     categoryRows.forEach((row) => {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row.row_id;
+    tr.dataset.sourceRowIds = JSON.stringify(row.grouped_row_ids ?? [row.row_id]);
     tr.classList.toggle("selected-result-row", String(selectedRowId) === String(row.row_id));
     const extraCells = extraFields
       .map((field) => `<td class="extra-column" data-column="extra_${field.id}">${buildCopyCell(formatExtraValue(row.extra_values?.[field.id]))}</td>`)
@@ -848,6 +877,7 @@ function renderFilteredResults() {
     tr.querySelector("[data-delete-row]")?.addEventListener("click", (event) => {
       event.stopPropagation();
       commitInlineEdit(false);
+      rememberEditAction();
       currentRows = currentRows.filter((item) => String(item.row_id) !== String(row.row_id));
       if (String(selectedRowId) === String(row.row_id)) selectedRowId = null;
       renderFilteredResults();
@@ -899,6 +929,50 @@ function renderFilteredResults() {
   applyProductColumnWidth();
   setElementHidden(emptyResultMessage, rows.length > 0);
   normalizeInitialExtraTableWidth();
+  updateUndoEditButton();
+}
+
+function getResultReviewIssues(rows) {
+  return rows.flatMap((row) => {
+    const reasons = [];
+    const finalPrice = Number(row.discount_amount);
+    if (finalPrice > Number(row.original_price)) reasons.push("최종가가 기존금액보다 큽니다");
+    if (finalPrice === 0) reasons.push("최종가가 0원입니다");
+    if (rewardFields.length && Number(row.total_reward_amount) > finalPrice) reasons.push("총 적립금액이 최종가보다 큽니다");
+    return reasons.length ? [{ row, reasons }] : [];
+  });
+}
+
+function renderResultReview() {
+  const issues = getResultReviewIssues(currentRows);
+  setElementHidden(resultReview, !currentRows.length);
+  resultReview.dataset.count = String(issues.length);
+  reviewSummary.textContent = issues.length ? `확인이 필요한 상품 ${issues.length}개` : "검토 완료 · 확인할 항목 없음";
+  reviewItems.innerHTML = "";
+  issues.forEach(({ row, reasons }) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "review-item";
+    button.innerHTML = `<span>${escapeHtml(displayProductName(row.product_name))}</span><span>${escapeHtml(reasons.join(" · "))}</span>`;
+    button.addEventListener("click", () => {
+      commitInlineEdit(false);
+      productSearch.value = "";
+      collapsedCategories.delete(row.category_name || "미분류");
+      renderFilteredResults();
+      const target = [...resultBody.querySelectorAll("tr[data-row-id]")].find((node) => (
+        JSON.parse(node.dataset.sourceRowIds).some((id) => String(id) === String(row.row_id))
+      ));
+      if (!target) return;
+      if (!isEditMode) {
+        selectedRowId = target.dataset.rowId;
+        updateSelectedResultRow();
+      }
+      target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    });
+    reviewItems.appendChild(button);
+  });
 }
 
 function normalizeInitialExtraTableWidth() {
@@ -964,14 +1038,14 @@ async function finishRender(payload) {
   resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function buildCopyCell(value, displayHtml = null) {
+function buildCopyCell(value, displayHtml = null, title = null) {
   const displayValue = displayHtml ?? escapeHtml(value);
   const copyValue = escapeAttribute(value);
-  return `<button class="copy-value" type="button" data-copy-value="${copyValue}" aria-label="${copyValue}">${displayValue}</button>`;
+  return `<button class="copy-value" type="button" data-copy-value="${copyValue}" aria-label="${copyValue}"${title === null ? "" : ` title="${escapeAttribute(title)}"`}>${displayValue}</button>`;
 }
 
 function buildProductNameCopyCell(value) {
-  return buildCopyCell(value, buildGroupedProductDisplayHtml(value));
+  return buildCopyCell(value, buildGroupedProductDisplayHtml(value), value);
 }
 
 function buildGroupedProductDisplayHtml(value) {
@@ -1005,6 +1079,7 @@ function moveResultRow(draggedId, targetId) {
   const fromIndex = currentRows.findIndex((row) => String(row.row_id) === String(draggedId));
   const targetIndex = currentRows.findIndex((row) => String(row.row_id) === String(targetId));
   if (fromIndex < 0 || targetIndex < 0) return;
+  rememberEditAction();
 
   const targetRow = currentRows[targetIndex];
   const [movedRow] = currentRows.splice(fromIndex, 1);
@@ -1047,12 +1122,32 @@ function createEmptyResultRow(categoryName = "") {
 
 function setEditMode(enabled) {
   isEditMode = Boolean(enabled);
+  lastEditAction = null;
   draggedResultRowId = null;
   editResultsButton.classList.toggle("active", isEditMode);
   editResultsButton.textContent = isEditMode ? "저장하기" : "편집";
   resultSection.classList.toggle("edit-mode", isEditMode);
   setElementHidden(cancelEditResultsButton, !isEditMode);
   setElementHidden(editAddRowWrap, !isEditMode);
+  setElementHidden(undoEditButton, !isEditMode);
+  updateUndoEditButton();
+  setSettingsSaveStatus(settingsSaveState);
+}
+
+function rememberEditAction() {
+  if (!isEditMode) return;
+  lastEditAction = {
+    rows: cloneRows(currentRows),
+    sort: { field: sortField.value, direction: sortDirection.value },
+    selectedRowId,
+    hadCustomSort: [...sortField.options].some((option) => option.value === "custom"),
+  };
+  updateUndoEditButton();
+}
+
+function updateUndoEditButton() {
+  const pendingChange = activeInlineEdit && String(getEditableValue(activeInlineEdit.row, activeInlineEdit.column)) !== activeInlineEdit.input.value;
+  undoEditButton.disabled = !isEditMode || (!lastEditAction && !pendingChange);
 }
 
 function cloneRows(rows) {
@@ -2381,7 +2476,9 @@ function restoreResultSnapshotIfSameFile(config) {
 
 function queueSaveCurrentSettings() {
   if (!uploadedFile || !currentFileKey) return;
+  settingsSaveRevision += 1;
   saveCurrentSettingsToLocalMirror();
+  setSettingsSaveStatus("saving");
   window.clearTimeout(settingsSaveTimer);
   settingsSaveTimer = window.setTimeout(() => {
     saveCurrentSettings();
@@ -2391,13 +2488,31 @@ function queueSaveCurrentSettings() {
 async function saveCurrentSettings() {
   const data = buildCurrentSettingsData();
   if (!data) return;
+  window.clearTimeout(settingsSaveTimer);
+  const revision = ++settingsSaveRevision;
+  setSettingsSaveStatus("saving");
   activeFileSettingsConfig = data;
   if (hasMatchingResultSnapshot(data)) activeResultSnapshotConfig = data;
   try {
-    await saveFileSettings(data.fileKey, data);
+    const saved = await saveFileSettings(data.fileKey, data);
+    if (revision === settingsSaveRevision) setSettingsSaveStatus(saved ? "saved" : "failed");
   } catch (error) {
+    if (revision === settingsSaveRevision) setSettingsSaveStatus("failed");
     console.warn("Failed to save file settings.", error);
   }
+}
+
+function setSettingsSaveStatus(state) {
+  settingsSaveState = state;
+  settingsSaveStatus.hidden = false;
+  settingsSaveStatus.dataset.state = state;
+  settingsSaveStatus.title = "이 브라우저에 저장됩니다. 브라우저 데이터를 삭제하면 기록도 삭제됩니다.";
+  settingsSaveStatus.textContent = {
+    idle: "설정 변경 시 자동 저장",
+    saving: "저장 중…",
+    saved: isEditMode ? "설정 저장 완료 · 편집 내용은 저장하기로 확정" : "저장 완료",
+    failed: "저장 실패 · 브라우저 저장 공간과 설정을 확인해주세요",
+  }[state];
 }
 
 function saveCurrentSettingsToLocalMirror() {
@@ -2590,8 +2705,8 @@ async function deleteServerFileSettings(fileKey) {
 }
 
 async function saveFileSettings(fileKey, data) {
-  if (!fileKey || !data) return;
-  saveLocalFileSettings(fileKey, data);
+  if (!fileKey || !data) return false;
+  const localSaved = saveLocalFileSettings(fileKey, data);
   saveServerFileSettings(fileKey, data).catch(() => {});
   const storageKeys = getSettingsStorageKeys(fileKey, data);
   try {
@@ -2599,8 +2714,10 @@ async function saveFileSettings(fileKey, data) {
       storageKeys.forEach((key) => store.put({ ...data, fileKey: key, sourceFileKey: fileKey }));
     });
     if (saved === null) storageKeys.forEach((key) => fallbackSettingsStore.set(key, { ...data, fileKey: key, sourceFileKey: fileKey }));
+    return saved !== null || localSaved;
   } catch {
     storageKeys.forEach((key) => fallbackSettingsStore.set(key, { ...data, fileKey: key, sourceFileKey: fileKey }));
+    return localSaved;
   }
 }
 
@@ -2755,28 +2872,33 @@ function readLocalSettingsMap() {
 function writeLocalSettingsMap(map) {
   try {
     localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(map));
+    return true;
   } catch {
     // localStorage can be blocked in private mode. IndexedDB/fallback map will still be attempted.
+    return false;
   }
 }
 
 function saveLocalFileSettings(fileKey, data) {
-  if (!fileKey || !data) return;
+  if (!fileKey || !data) return false;
   const savedAt = Date.now();
   const normalizedData = { ...data, savedAt };
   const map = readLocalSettingsMap();
   getSettingsStorageKeys(fileKey, normalizedData).forEach((key) => {
     map[key] = { ...normalizedData, fileKey: key, sourceFileKey: fileKey };
   });
-  writeLocalSettingsMap(map);
-  writeLastLocalSettings({ ...normalizedData, fileKey, sourceFileKey: fileKey });
+  const mapSaved = writeLocalSettingsMap(map);
+  const lastSaved = writeLastLocalSettings({ ...normalizedData, fileKey, sourceFileKey: fileKey });
+  return mapSaved || lastSaved;
 }
 
 function writeLastLocalSettings(data) {
   try {
     localStorage.setItem(LAST_SETTINGS_KEY, JSON.stringify(data));
+    return true;
   } catch {
     // Ignore blocked storage.
+    return false;
   }
 }
 
@@ -3090,6 +3212,7 @@ function startInlineEdit(button, row) {
   input.value = getEditableValue(row, column);
   button.replaceWith(input);
   activeInlineEdit = { input, row, column };
+  input.addEventListener("input", updateUndoEditButton);
   input.focus();
   input.select();
 
@@ -3111,6 +3234,7 @@ function commitInlineEdit(shouldRender = true) {
   if (!activeInlineEdit) return;
   const { input, row, column } = activeInlineEdit;
   activeInlineEdit = null;
+  if (String(getEditableValue(row, column)) !== input.value) rememberEditAction();
   applyEditedValue(row, column, input.value);
   recalculateDerivedValues(row);
   if (shouldRender) renderFilteredResults();
