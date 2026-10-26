@@ -804,6 +804,18 @@ h1 {
   background: rgba(61, 90, 128, 0.15);
 }
 
+.preview-table td.selected-final {
+  background: rgba(225, 139, 64, 0.22);
+}
+
+.preview-table td.selected-extra {
+  background: rgba(142, 108, 184, 0.19);
+}
+
+.preview-table td.selected-reward {
+  background: rgba(39, 103, 73, 0.14);
+}
+
 .preview-table td.selected-discount {
   background: rgba(39, 103, 73, 0.14);
 }

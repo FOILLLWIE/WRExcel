@@ -538,15 +538,15 @@ function updatePreviewColumnHighlights() {
   const selections = [
     [productColumn, "selected-product"],
     [originalColumn, "selected-original"],
-    [finalPriceColumn, "selected-discount"],
+    [finalPriceColumn, "selected-final"],
     [categoryColumn, "selected-discount"],
     ...Array.from(document.querySelectorAll(
       '.extra-field-card [data-field]:not(.hidden-field) input, .reward-field-card input[data-role="source_col"]',
-    ), (input) => [input, "selected-discount"]),
+    ), (input) => [input, input.closest(".reward-field-card") ? "selected-reward" : "selected-extra"]),
   ];
   const columns = selections.map(([input, className]) => [parseColumnInput(input.value), className]);
   previewTable.querySelectorAll("td[data-col]").forEach((cell) => {
-    cell.classList.remove("selected-product", "selected-original", "selected-discount");
+    cell.classList.remove("selected-product", "selected-original", "selected-discount", "selected-final", "selected-extra", "selected-reward");
     columns.forEach(([index, className]) => {
       if (index !== null && index === Number(cell.dataset.col)) cell.classList.add(className);
     });
