@@ -1,6 +1,4 @@
 ﻿const qs = (selector, root = document) => root.querySelector(selector);
-const qsa = (selector, root = document) => [...root.querySelectorAll(selector)];
-const byType = (type) => qs(`[data-type="${type}"]`);
 const columnField = (type) => qs(`.column-field[data-type="${type}"]`);
 const columnInput = (type) => qs(`[data-role="column-input"][data-type="${type}"]`);
 const optionInput = (name) => qs(`[data-role="option"][data-option="${name}"]`);
