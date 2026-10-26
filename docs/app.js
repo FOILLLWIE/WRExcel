@@ -1025,18 +1025,6 @@ function moveResultRow(draggedId, targetId) {
   queueSaveCurrentSettings();
 }
 
-function getCategoryForNewResultRow() {
-  if (!categoryColumn.dataset.index) return "";
-  if (selectedRowId) {
-    const selectedRow = currentRows.find((row) => String(row.row_id) === String(selectedRowId));
-    if (selectedRow?.category_name) return selectedRow.category_name;
-  }
-  if (lastActiveCategoryKey && lastActiveCategoryKey !== "\uBBF8\uBD84\uB958") return lastActiveCategoryKey;
-  const groups = groupRowsByCategory(currentRows);
-  const lastGroup = groups[groups.length - 1];
-  return lastGroup?.[0] === "\uBBF8\uBD84\uB958" ? "" : (lastGroup?.[0] ?? "");
-}
-
 function createEmptyResultRow(categoryName = "") {
   const extraValues = Object.fromEntries(extraFields.map((field) => [field.id, 0]));
   const rewardValues = Object.fromEntries(rewardFields.map((field) => [field.id, 0]));
@@ -1683,21 +1671,6 @@ function hasSameVisibleResultValues(rowA, rowB) {
   if (!extraSame) return false;
   const rewardSame = rewardFields.every((field) => normalizeSignatureValue(rowA.reward_values?.[field.id]) === normalizeSignatureValue(rowB.reward_values?.[field.id]));
   return rewardSame;
-}
-
-function buildResultSignature(row) {
-  const extraSignature = extraFields.map((field) => normalizeSignatureValue(row.extra_values?.[field.id])).join("|");
-  const rewardSignature = rewardFields.map((field) => normalizeSignatureValue(row.reward_values?.[field.id])).join("|");
-  return [
-    normalizeSignatureValue(row.original_price),
-    normalizeSignatureValue(row.discount_amount),
-    normalizeSignatureValue(row.total_discount_amount),
-    normalizeSignatureValue(row.discount_rate),
-    extraSignature,
-    rewardSignature,
-    normalizeSignatureValue(row.total_reward_amount),
-    normalizeSignatureValue(row.effective_price),
-  ].join("::");
 }
 
 function normalizeSignatureValue(value) {
