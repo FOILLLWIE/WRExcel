@@ -1909,7 +1909,13 @@ function formatRate(value) {
 function formatExtraValue(value) {
   const normalized = normalizeDisplayValue(value);
   if (normalized === null || normalized === undefined || normalized === "") return "";
-  return typeof normalized === "number" ? formatCurrency(normalized) : String(normalized);
+  if (typeof normalized === "number") return formatCurrency(normalized);
+  const text = String(normalized).trim();
+  if (/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?\s*원?$/.test(text)) {
+    const number = Number(text.replace(/[,\s원]/g, ""));
+    if (Number.isFinite(number)) return formatCurrency(number);
+  }
+  return String(normalized);
 }
 
 function normalizeDisplayValue(value) {
