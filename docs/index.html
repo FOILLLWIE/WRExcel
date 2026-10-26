@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>할인금액 계산기</title>
-    <link rel="stylesheet" href="./styles.css?v=20261026-3" />
+    <link rel="stylesheet" href="./styles.css?v=20261026-4" />
   </head>
   <body>
     <main class="page-shell">
@@ -32,6 +32,25 @@
         </div>
       </section>
 
+      <section class="panel image-import-panel" data-role="image-import">
+        <details>
+          <summary>표 이미지로 불러오기 <span class="image-beta">시험 기능</span></summary>
+          <p class="image-import-hint">엑셀·Sheets 표 캡처 한 장을 선택하세요. 글자를 인식한 뒤 제품명과 금액을 확인·수정할 수 있습니다.</p>
+          <label class="image-file-label">표 이미지 선택<input data-role="image-file" type="file" accept="image/png,image/jpeg,image/webp" /></label>
+          <p class="image-import-hint">이미지는 브라우저 안에서 처리됩니다. 최초 실행 시 인식 모델을 내려받으므로 인터넷 연결이 필요합니다. 색상·병합셀은 재현하지 않습니다.</p>
+          <img class="ocr-original" data-role="ocr-original" alt="확인용 원본 표 이미지" hidden />
+          <div class="image-import-actions"><button class="ghost-button" data-role="ocr-start" type="button" disabled>글자 인식</button><button class="ghost-button" data-role="ocr-cancel" type="button" hidden>인식 취소</button></div>
+          <p class="ocr-status" data-role="ocr-status" role="status"></p>
+          <progress data-role="ocr-progress" max="100" value="0" hidden aria-label="글자 인식 진행률"></progress>
+          <div data-role="ocr-editor" hidden>
+            <p class="image-import-hint">옅은 주황색 칸은 인식 신뢰도가 낮은 칸입니다. 색이 없는 칸도 틀릴 수 있으니 원본과 대조하세요. 빈 열·행을 추가하거나 불필요한 행·열을 삭제할 수 있습니다.</p>
+            <div class="ocr-table-wrap"><table class="ocr-table" data-role="ocr-table" aria-label="수정 가능한 이미지 인식 표"></table></div>
+            <div class="image-import-actions"><button class="ghost-button" data-role="ocr-add-row" type="button">+ 행 추가</button><button class="ghost-button" data-role="ocr-add-column" type="button">+ 열 추가</button></div>
+            <label class="ocr-confirm"><input data-role="ocr-confirm" type="checkbox" /> 원본 이미지와 제품명·금액을 확인했습니다</label>
+            <button class="primary-button" data-role="ocr-apply" type="button" disabled>확인한 표로 열 선택하기</button>
+          </div>
+        </details>
+      </section>
       <p class="settings-save-status" data-role="settings-save-status" role="status" hidden></p>
       <section id="statusCard" class="panel status-panel hidden" data-role="status" hidden aria-live="polite"></section>
 
@@ -73,7 +92,8 @@
     </main>
     <div class="dialog-backdrop" data-role="dialog" data-dialog-type="confirm" hidden role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><div class="dialog-card"><h2 id="dialogTitle" data-role="dialog-title"></h2><p data-role="dialog-message"></p><div class="dialog-actions" data-role="dialog-actions"></div></div></div>
     <script src="./exceljs.min.js"></script>
-    <script src="./app.js?v=20261026-3"></script>
+    <script src="./app.js?v=20261026-4"></script>
+    <script src="./image-import.js?v=20261026-4"></script>
   </body>
 </html>
 

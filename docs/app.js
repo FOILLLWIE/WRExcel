@@ -230,8 +230,10 @@ async function loadWorkbookFile(file, { sourceLabel = "\uC5D1\uC140" } = {}) {
       showRestoreDialog();
     }
     setStatus(`${sourceLabel}\uB97C \uC77D\uC5C8\uC2B5\uB2C8\uB2E4. \uACC4\uC0B0\uC5D0 \uC0AC\uC6A9\uD560 \uC704\uCE58\uB97C \uC120\uD0DD\uD558\uC138\uC694.`, "success");
+    return true;
   } catch (error) {
     setStatus(error.message, "error");
+    return false;
   }
 }
 

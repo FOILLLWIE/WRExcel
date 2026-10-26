@@ -474,7 +474,8 @@ h1 {
   cursor: pointer;
 }
 
-.color-load-option input {
+.color-load-option input,
+.ocr-confirm input {
   appearance: none;
   width: 18px;
   height: 18px;
@@ -485,12 +486,14 @@ h1 {
   position: relative;
 }
 
-.color-load-option input:checked {
+.color-load-option input:checked,
+.ocr-confirm input:checked {
   border-color: var(--accent);
   background: var(--accent);
 }
 
-.color-load-option input:checked::after {
+.color-load-option input:checked::after,
+.ocr-confirm input:checked::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -958,6 +961,139 @@ h1 {
   margin: 12px 4px 0;
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.image-import-panel {
+  margin-top: 16px;
+  padding: 18px 22px;
+}
+
+.image-import-panel summary {
+  color: var(--accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.image-beta {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.image-import-hint {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.image-file-label {
+  display: grid;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.image-file-label input {
+  max-width: 100%;
+}
+
+.ocr-original {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  margin: 12px 0;
+  object-fit: contain;
+  object-position: left;
+}
+
+.image-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.ocr-status {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.ocr-status.error {
+  color: var(--danger);
+}
+
+.image-import-panel progress {
+  width: min(100%, 420px);
+  accent-color: var(--accent);
+}
+
+.ocr-table-wrap {
+  max-height: 440px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.ocr-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+.ocr-table td,
+.ocr-table th {
+  padding: 4px;
+  border: 1px solid var(--line);
+}
+
+.ocr-table th {
+  background: #faf6f0;
+  text-align: center;
+}
+
+.ocr-table th button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ocr-table input {
+  box-sizing: border-box;
+  width: 170px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  background: white;
+  font: inherit;
+}
+
+.ocr-table input.ocr-uncertain {
+  background: #fff0da;
+  border-color: #e1ba87;
+}
+
+.ocr-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+  font-size: 0.9rem;
+}
+
+.ocr-confirm input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  accent-color: var(--accent);
+}
+
+.image-import-panel button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .settings-save-status[data-state="saved"] {
