@@ -2603,6 +2603,7 @@ function restoreSettings(config) {
   rewardFields = (normalizedConfig.reward_fields ?? []).map(normalizeRewardFieldConfig);
   renderExtraFieldInputs();
   renderRewardFieldInputs();
+  updatePreviewColumnHighlights();
   loadAllColumnColors();
   updateCalculateButtonState();
   applyPriceHighlighting();
