@@ -98,7 +98,7 @@ let activeExtraFieldTarget = null;
 let pendingRestoreConfig = null;
 let activeFileSettingsConfig = null;
 let activeResultSnapshotConfig = null;
-let lastResultMapping = null;
+let lastResultCalculation = null;
 let resultSnapshotDirty = false;
 let currentFileKey = "";
 let currentFileContentHash = "";
@@ -193,7 +193,7 @@ async function loadWorkbookFile(file, { sourceLabel = "\uC5D1\uC140" } = {}) {
   currentFileContentHash = await createFileContentHash(file);
   activeFileSettingsConfig = null;
   activeResultSnapshotConfig = null;
-  lastResultMapping = null;
+  lastResultCalculation = null;
   resultSnapshotDirty = false;
   fileDrop.classList.add("uploaded");
   if (fileTitle) fileTitle.textContent = file.name;
@@ -408,6 +408,7 @@ cancelEditResultsButton.addEventListener("click", () => {
   editSortSnapshot = null;
   setEditMode(false);
   renderFilteredResults();
+  queueSaveCurrentSettings();
 });
 if (addResultRowButton) {
   addResultRowButton.addEventListener("click", () => {
@@ -547,14 +548,13 @@ function selectCell(cell) {
 [productColumn, originalColumn, finalPriceColumn, categoryColumn].forEach((input) => {
   input.addEventListener("input", () => {
     const parsed = parseColumnInput(input.value);
-    if (parsed === null) {
-      delete input.dataset.index;
-      resetColumnColors(columnKeyForInput(input));
-      return;
+    if (parsed === null) delete input.dataset.index;
+    else input.dataset.index = String(parsed);
+    const colorKey = columnKeyForInput(input);
+    if (colorKey) {
+      if (parsed !== null && autoLoadColorFilters.checked) loadColumnColors(colorKey);
+      else resetColumnColors(colorKey);
     }
-    input.dataset.index = String(parsed);
-    if (autoLoadColorFilters.checked) loadColumnColors(columnKeyForInput(input));
-    else resetColumnColors(columnKeyForInput(input));
     updateCalculateButtonState();
     queueSaveCurrentSettings();
   });
@@ -727,13 +727,13 @@ async function postFile(path, extraFields = {}) {
 function renderResults(payload) {
   itemCount.textContent = `${payload.rows.length}개`;
   currentRows = payload.rows;
-  lastResultMapping = getCurrentMappingSnapshot();
   resultSnapshotDirty = false;
   editRowsSnapshot = null;
   activeInlineEdit = null;
   setEditMode(false);
   extraFields = payload.extra_fields ?? extraFields;
   rewardFields = payload.reward_fields ?? rewardFields;
+  lastResultCalculation = getCurrentCalculationFingerprint();
   collapsedCategories.clear();
   resultSection.classList.toggle("single-extra-field", extraFields.length === 1);
   resultSection.classList.toggle("multiple-extra-fields", extraFields.length > 1);
@@ -1355,7 +1355,7 @@ function evaluateConditionalExpression(worksheet, formula, rowNumber, columnInde
 }
 
 function getFunctionArguments(text, name) {
-  const pattern = new RegExp(`^${name}\s*\((.*)\)$`, "i");
+  const pattern = new RegExp(`^${name}\\s*\\((.*)\\)$`, "i");
   const match = text.match(pattern);
   return match ? splitFormulaArguments(match[1]) : null;
 }
@@ -2337,22 +2337,21 @@ function buildCurrentSettingsData() {
 }
 
 function buildResultSnapshot() {
-  if (resultSnapshotDirty) return null;
-  if (resultSection.hidden || !currentRows.length) return null;
-  const currentMapping = getCurrentMappingSnapshot();
-  if (lastResultMapping && !isSameMapping(lastResultMapping, currentMapping)) return null;
+  if (resultSnapshotDirty || resultSection.hidden) return null;
+  const rows = isEditMode ? editRowsSnapshot : currentRows;
+  if (!rows?.length) return null;
+  const calculation = getCurrentCalculationFingerprint();
+  if (!lastResultCalculation || stableSettingsString(lastResultCalculation) !== stableSettingsString(calculation)) return null;
+  const sort = isEditMode ? editSortSnapshot : { field: sortField.value, direction: sortDirection.value };
   return {
     version: 1,
     savedAt: Date.now(),
-    rows: cloneRows(currentRows),
+    rows: cloneRows(rows),
     extraFields: serializeExtraFields(),
     rewardFields: serializeRewardFields(),
-    mapping: currentMapping,
-    calculation: getCurrentCalculationFingerprint(),
-    sort: {
-      field: sortField.value,
-      direction: sortDirection.value,
-    },
+    mapping: calculation.mapping,
+    calculation,
+    sort: { ...sort },
   };
 }
 
@@ -2368,7 +2367,6 @@ function restoreResultSnapshotIfSameFile(config) {
     extra_fields: extraFields,
     reward_fields: rewardFields,
   });
-  lastResultMapping = getCurrentMappingSnapshot();
   resultSnapshotDirty = false;
   applyProductCleanupOptions(config.options?.productCleanup ?? config.productCleanup ?? {});
   if (snapshot.sort?.field === "custom") setSortFieldToCustomOrder();
@@ -2784,7 +2782,12 @@ function writeLastLocalSettings(data) {
 
 function readLastLocalSettings() {
   try {
-    return JSON.parse(localStorage.getItem(LAST_SETTINGS_KEY) || "null");
+    const settings = JSON.parse(localStorage.getItem(LAST_SETTINGS_KEY) || "null");
+    if (!isStoredSettingsCurrent(settings)) {
+      localStorage.removeItem(LAST_SETTINGS_KEY);
+      return null;
+    }
+    return settings;
   } catch {
     return null;
   }
@@ -2835,6 +2838,12 @@ function cleanupLocalFileSettings(cutoff) {
     }
   });
   if (changed) writeLocalSettingsMap(map);
+  readLastLocalSettings();
+}
+
+function isStoredSettingsCurrent(settings) {
+  const savedAt = Number(settings?.savedAt);
+  return Number.isFinite(savedAt) && savedAt >= Date.now() - SETTINGS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 }
 
 function hasMatchingResultSnapshot(setting) {
@@ -2846,7 +2855,7 @@ function hasMatchingResultSnapshot(setting) {
 }
 
 function pickBestSettingsForCurrentFile(...items) {
-  const validItems = items.filter(Boolean);
+  const validItems = items.filter(isStoredSettingsCurrent);
   const resultSnapshots = validItems.filter(hasMatchingResultSnapshot);
   if (resultSnapshots.length) return pickLatestSettings(...resultSnapshots);
   return pickLatestSettings(...validItems);
@@ -2854,7 +2863,7 @@ function pickBestSettingsForCurrentFile(...items) {
 
 function pickLatestSettings(...items) {
   return items
-    .filter(Boolean)
+    .filter(isStoredSettingsCurrent)
     .sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0))[0] ?? null;
 }
 
@@ -2873,6 +2882,7 @@ function normalizeColumnIndexValue(value) {
 }
 
 function persistDynamicColumnInput(input, colIndex = null) {
+  if (!["source_col", "operand_col", "left_col", "right_col"].includes(input.dataset.role)) return;
   const card = input.closest(".extra-field-card, .reward-field-card");
   if (!card) return;
   clearRestoredResultSnapshot();
@@ -2908,6 +2918,7 @@ function renderExtraResultHeaders() {
     const label = document.createElement("label");
     label.innerHTML = `<input type="checkbox" data-visible-column="extra_${field.id}" data-extra-visible-column="${field.id}" checked /> ${escapeHtml(field.name)}`;
     const checkbox = label.querySelector("input");
+    checkbox.checked = !hiddenColumns.has(checkbox.dataset.visibleColumn);
     checkbox.addEventListener("change", () => {
       const column = checkbox.dataset.visibleColumn;
       if (checkbox.checked) hiddenColumns.delete(column);
@@ -3047,6 +3058,7 @@ function renderRewardResultHeaders() {
     const label = document.createElement("label");
     label.innerHTML = `<input type="checkbox" data-visible-column="reward_${field.id}" data-reward-visible-column="${field.id}" checked /> ${escapeHtml(field.name)}`;
     const checkbox = label.querySelector("input");
+    checkbox.checked = !hiddenColumns.has(checkbox.dataset.visibleColumn);
     checkbox.addEventListener("change", () => {
       const column = checkbox.dataset.visibleColumn;
       if (checkbox.checked) hiddenColumns.delete(column);
