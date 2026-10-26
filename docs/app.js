@@ -63,7 +63,7 @@ const highlightFinalPrices = optionInput("highlightFinalPrices");
 const titleCaseProductName = optionInput("titleCaseProductName");
 const autoLoadColorFilters = optionInput("autoLoadColorFilters");
 const groupSimilarProducts = optionInput("groupSimilarProducts");
-const colorLoadOptionText = autoLoadColorFilters?.closest("label")?.querySelector(".option-label");
+const colorLoadOptionText = qs("#colorLoadOptionText");
 const sortField = selectInput("sortField");
 const sortDirection = selectInput("sortDirection");
 const emptyResultMessage = qs('[data-role="empty-result-message"]');
@@ -1949,7 +1949,7 @@ function renderExtraFieldInputs() {
         <div class="extra-custom-name-wrap hidden-field">
           <input class="extra-custom-name" data-role="custom_name" value="${escapeAttribute(field.custom_name)}" placeholder="항목명을 입력하세요" />
           <button class="extra-custom-select-toggle" type="button" aria-label="항목명 선택 열기"></button>
-          <div class="extra-custom-select-menu hidden">
+          <div class="extra-custom-select-menu hidden" hidden>
             <button type="button" data-name-choice="">항목 선택</button>
             <button type="button" data-name-choice="선택쿠폰">선택쿠폰</button>
             <button type="button" data-name-choice="중복쿠폰">중복쿠폰</button>
@@ -2019,7 +2019,7 @@ function renderExtraFieldInputs() {
     const customMenu = card.querySelector(".extra-custom-select-menu");
     customToggle.addEventListener("click", (event) => {
       event.stopPropagation();
-      customMenu.classList.toggle("hidden");
+      setElementHidden(customMenu, !customMenu.hidden);
     });
     customMenu.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
@@ -2029,7 +2029,7 @@ function renderExtraFieldInputs() {
         updateExtraNameVisibility(card, field.name_choice);
         syncCustomSelect(nameSelect);
         activateDynamicFieldColumnTarget(card);
-        customMenu.classList.add("hidden");
+        setElementHidden(customMenu, true);
         clearRestoredResultSnapshot();
         queueSaveCurrentSettings();
       });
@@ -2951,7 +2951,7 @@ function renderRewardFieldInputs() {
         <div class="extra-custom-name-wrap hidden-field">
           <input class="extra-custom-name" data-role="custom_name" value="${escapeAttribute(field.custom_name)}" placeholder="\uD56D\uBAA9\uBA85\uC744 \uC785\uB825\uD558\uC138\uC694" />
           <button class="extra-custom-select-toggle" type="button" aria-label="\uD56D\uBAA9\uBA85 \uC120\uD0DD \uC5F4\uAE30"></button>
-          <div class="extra-custom-select-menu hidden">
+          <div class="extra-custom-select-menu hidden" hidden>
             <button type="button" data-name-choice="">\uD56D\uBAA9 \uC120\uD0DD</button>
             <button type="button" data-name-choice="\uC2A4\uB9C8\uC77C\uCE74\uB4DC">\uC2A4\uB9C8\uC77C\uCE74\uB4DC</button>
             <button type="button" data-name-choice="\uBA38\uB2C8\uCDA9\uC804">\uBA38\uB2C8\uCDA9\uC804</button>
@@ -2995,7 +2995,7 @@ function renderRewardFieldInputs() {
     const customMenu = card.querySelector(".extra-custom-select-menu");
     customToggle.addEventListener("click", (event) => {
       event.stopPropagation();
-      customMenu.classList.toggle("hidden");
+      setElementHidden(customMenu, !customMenu.hidden);
     });
     customMenu.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
@@ -3005,7 +3005,7 @@ function renderRewardFieldInputs() {
         updateRewardNameVisibility(card, field.name_choice);
         syncCustomSelect(nameSelect);
         activateDynamicFieldColumnTarget(card);
-        customMenu.classList.add("hidden");
+        setElementHidden(customMenu, true);
         clearRestoredResultSnapshot();
         queueSaveCurrentSettings();
       });
