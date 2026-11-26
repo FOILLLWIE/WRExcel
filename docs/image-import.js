@@ -1,6 +1,6 @@
 const ocrPanel = document.querySelector('[data-role="image-import"]');
 const ocrElement = (role) => ocrPanel.querySelector(`[data-role="${role}"]`);
-const ocrState = { file: null, url: "", rows: [], moneyColumns: new Set(), busy: false, run: 0, cancel: null };
+const ocrState = { file: null, url: "", rows: [], busy: false, run: 0, cancel: null };
 let ocrEnginePromise = null;
 
 ocrElement("image-file").addEventListener("change", (event) => {
@@ -8,7 +8,6 @@ ocrElement("image-file").addEventListener("change", (event) => {
   if (ocrState.url) URL.revokeObjectURL(ocrState.url);
   ocrState.file = null;
   ocrState.rows = [];
-  ocrState.moneyColumns.clear();
   ocrElement("ocr-original").hidden = true;
   ocrElement("ocr-editor").hidden = true;
   ocrElement("ocr-start").disabled = true;
@@ -159,7 +158,6 @@ async function ocrRecognize() {
     if (!words.length) throw new Error("읽을 수 있는 글자가 없습니다. 선명한 표 캡처로 다시 시도해주세요.");
     ocrState.rows = ocrWordsToTable(words, canvas.width, ocrFindGridLines(canvas, true), ocrFindGridLines(canvas, false));
     if (ocrState.rows.length > 200 || ocrState.rows[0].length > 24) throw new Error("한 번에 200행·24열까지 인식할 수 있습니다. 표를 나누어 올려주세요.");
-    ocrState.moneyColumns.clear();
     ocrRenderTable();
     ocrElement("ocr-editor").hidden = false;
     ocrSetStatus(`${ocrState.rows.length}행 · ${ocrState.rows[0].length}열을 인식했습니다. 원본과 비교한 뒤 확인해주세요.`);
@@ -255,7 +253,7 @@ function ocrWordsToTable(words, width, vertical = [], horizontal = []) {
 
 function ocrMoneyCorrection(text) {
   const value = String(text).trim();
-  if (!/^[+-]?\d{1,3}(?:\.\d{3})+\s*원?$/.test(value)) return null;
+  if (!value.includes(".") || !/^[+-]?\d+(?:[.,]\d+)+\s*원?$/.test(value)) return null;
   return value.replace(/\./g, ",");
 }
 
@@ -274,21 +272,8 @@ function ocrRenderTable() {
     remove.textContent = `${columnLabel(index)} ×`;
     remove.setAttribute("aria-label", `${columnLabel(index)}열 삭제`);
     remove.disabled = ocrState.rows[0].length === 1;
-    remove.addEventListener("click", () => { if (ocrState.rows[0].length <= 1) return; ocrState.rows.forEach((row) => row.splice(index, 1)); ocrState.moneyColumns = new Set([...ocrState.moneyColumns].filter((col) => col !== index).map((col) => col > index ? col - 1 : col)); ocrRenderTable(); });
+    remove.addEventListener("click", () => { if (ocrState.rows[0].length <= 1) return; ocrState.rows.forEach((row) => row.splice(index, 1)); ocrRenderTable(); });
     cell.appendChild(remove);
-    const label = document.createElement("label");
-    label.className = "ocr-money-column";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = ocrState.moneyColumns.has(index);
-    checkbox.setAttribute("aria-label", `${columnLabel(index)}열 금액`);
-    checkbox.addEventListener("change", () => {
-      if (checkbox.checked) ocrState.moneyColumns.add(index);
-      else ocrState.moneyColumns.delete(index);
-      ocrRenderTable();
-    });
-    label.append(checkbox, "금액 열");
-    cell.appendChild(label);
     header.appendChild(cell);
   });
   const body = table.createTBody();
@@ -308,33 +293,19 @@ function ocrRenderTable() {
       const td = tr.insertCell();
       const input = document.createElement("input");
       input.type = "text";
+      cell.text = ocrMoneyCorrection(cell.text) ?? cell.text;
       input.value = cell.text;
       input.setAttribute("aria-label", `${columnLabel(columnIndex)}${rowIndex + 1}`);
       input.classList.toggle("ocr-uncertain", cell.confidence < 75);
-      const correction = document.createElement("button");
-      correction.type = "button";
-      correction.className = "ocr-money-correction";
-      const updateCorrection = () => {
-        const candidate = ocrState.moneyColumns.has(columnIndex) ? ocrMoneyCorrection(cell.text) : null;
-        correction.hidden = !candidate;
-        correction.textContent = candidate ? `${cell.text.trim()} → ${candidate} 적용` : "";
-      };
-      correction.addEventListener("click", () => {
-        const candidate = ocrMoneyCorrection(cell.text);
-        if (!candidate) return;
-        input.value = candidate;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      });
       input.addEventListener("input", () => {
-        cell.text = input.value;
+        cell.text = ocrMoneyCorrection(input.value) ?? input.value;
+        input.value = cell.text;
         cell.confidence = 100;
         input.classList.remove("ocr-uncertain");
         ocrElement("ocr-confirm").checked = false;
         ocrUpdateApply();
-        updateCorrection();
       });
-      updateCorrection();
-      td.append(input, correction);
+      td.appendChild(input);
     });
   });
   ocrElement("ocr-add-row").disabled = ocrState.busy || ocrState.rows.length >= 200;

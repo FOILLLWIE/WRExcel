@@ -2344,30 +2344,3 @@ th {
 .table-panel colgroup col {
   min-width: 0;
 }
-
-
-
-.ocr-money-column {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  font-size: 12px;
-}
-.ocr-table .ocr-money-column input {
-  width: auto;
-  accent-color: var(--accent);
-}
-.ocr-money-correction {
-  display: block;
-  margin-top: 4px;
-  border: 1px solid #e1ba87;
-  border-radius: 5px;
-  padding: 5px 7px;
-  color: var(--accent);
-  background: #fff0da;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.ocr-money-correction[hidden] { display: none; }
