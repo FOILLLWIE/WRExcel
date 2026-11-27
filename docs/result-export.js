@@ -40,7 +40,7 @@ exportResultsButton.addEventListener("click", () => {
       csvRows.push(values);
     }
     const csv = "\uFEFF" + csvRows.map((row) => row.map((value) => {
-      if (typeof value === "number") return String(value);
+      if (typeof value === "number") return `"${currencyFormatter.format(value)}"`;
       let text = String(value ?? "");
       // CSV text must not become a spreadsheet formula when the file is opened.
       if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
