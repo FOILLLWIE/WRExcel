@@ -69,13 +69,28 @@ function showCsvAmountFilter() {
   label.textContent = "기준 열 ";
   const select = document.createElement("select");
   select.dataset.role = "csv-amount-column";
+  select.id = "csvAmountColumn";
+  select.className = "native-select-hidden";
+  select.tabIndex = -1;
+  select.setAttribute("aria-hidden", "true");
   headers.forEach((header) => {
     const option = document.createElement("option");
     option.value = header.dataset.column;
     option.textContent = header.textContent.trim();
     select.appendChild(option);
   });
-  label.appendChild(select);
+  const wrapper = document.createElement("span");
+  wrapper.className = "custom-select";
+  wrapper.dataset.selectTarget = "csvAmountColumn";
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "custom-select-trigger";
+  trigger.setAttribute("aria-label", "기준 열 선택");
+  const menu = document.createElement("span");
+  menu.className = "custom-select-menu";
+  setElementHidden(menu, true);
+  wrapper.append(trigger, menu);
+  label.append(wrapper, select);
   const list = document.createElement("span");
   list.className = "csv-amount-list";
   list.setAttribute("role", "group");
@@ -100,13 +115,19 @@ function showCsvAmountFilter() {
         else amounts.delete(value);
         download.disabled = amounts.size === 0;
       });
-      option.append(checkbox, `${currencyFormatter.format(value)}원 · ${count}개`);
+      const amountLabel = document.createElement("span");
+      amountLabel.textContent = `${currencyFormatter.format(value)}원`;
+      const countLabel = document.createElement("span");
+      countLabel.className = "csv-amount-count";
+      countLabel.textContent = `${count}개`;
+      option.append(checkbox, amountLabel, countLabel);
       list.appendChild(option);
     });
   };
   select.addEventListener("change", renderAmounts);
   panel.append(label, list);
   dialogMessage.appendChild(panel);
+  mountCustomSelect(wrapper, select);
   renderAmounts();
 }
 
