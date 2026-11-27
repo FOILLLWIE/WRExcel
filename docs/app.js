@@ -97,6 +97,7 @@ let pendingPayload = null;
 let currentRows = [];
 let isEditMode = false;
 let selectedRowId = null;
+const selectedResultRowIds = new Set();
 const hiddenColumns = new Set();
 let productNameFilters = [];
 let extraFields = [];
@@ -312,9 +313,10 @@ resultSection.addEventListener("click", (event) => {
   if (isEditMode) return;
   if (!selectedRowId) return;
   const isResultRow = event.target.closest("tbody tr:not(.category-group-row)");
-  const isInteractive = event.target.closest("button, input, select, textarea, [data-role='select'], [data-role='select-menu']");
+  const isInteractive = event.target.closest("button, input, select, textarea, [data-role='select'], [data-role='select-menu'], [data-role='dialog']");
   if (isResultRow || isInteractive) return;
   selectedRowId = null;
+  selectedResultRowIds.clear();
   updateSelectedResultRow();
 });
 productFilterButton.addEventListener("click", (event) => {
@@ -819,6 +821,8 @@ async function postFile(path, extraFields = {}) {
 function renderResults(payload) {
   itemCount.textContent = `${payload.rows.length}개`;
   currentRows = payload.rows;
+  selectedRowId = null;
+  selectedResultRowIds.clear();
   resultSnapshotDirty = false;
   editRowsSnapshot = null;
   activeInlineEdit = null;
@@ -901,7 +905,7 @@ function renderFilteredResults() {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row.row_id;
     tr.dataset.sourceRowIds = JSON.stringify(row.grouped_row_ids ?? [row.row_id]);
-    tr.classList.toggle("selected-result-row", String(selectedRowId) === String(row.row_id));
+    tr.classList.toggle("selected-result-row", isResultRowSelected(row.grouped_row_ids ?? [row.row_id]));
     const extraCells = extraFields
       .map((field) => `<td class="extra-column" data-column="extra_${field.id}">${buildCopyCell(formatExtraValue(row.extra_values?.[field.id]))}</td>`)
       .join("");
@@ -934,9 +938,20 @@ function renderFilteredResults() {
         if (isEditMode) {
           return;
         }
-        selectedRowId = String(row.row_id);
+        const additive = event.ctrlKey || event.metaKey;
+        const ids = (row.grouped_row_ids ?? [row.row_id]).map(String);
+        if (additive) {
+          if (selectedResultRowIds.size === 0 && selectedRowId !== null) selectedResultRowIds.add(String(selectedRowId));
+          const remove = ids.every((id) => selectedResultRowIds.has(id));
+          ids.forEach((id) => remove ? selectedResultRowIds.delete(id) : selectedResultRowIds.add(id));
+          selectedRowId = [...selectedResultRowIds].at(-1) ?? null;
+        } else {
+          selectedResultRowIds.clear();
+          ids.forEach((id) => selectedResultRowIds.add(id));
+          selectedRowId = String(row.row_id);
+        }
         updateSelectedResultRow();
-        await copyText(event.currentTarget.dataset.copyValue);
+        if (!additive) await copyText(event.currentTarget.dataset.copyValue);
       });
     });
     tr.querySelector("[data-delete-row]")?.addEventListener("click", (event) => {
@@ -981,6 +996,7 @@ function renderFilteredResults() {
       if (isEditMode) return;
       if (!selectedRowId) return;
       selectedRowId = null;
+      selectedResultRowIds.clear();
       updateSelectedResultRow();
     });
       resultBody.appendChild(tr);
@@ -1029,6 +1045,7 @@ function renderResultReview() {
       ));
       if (!target) return;
       if (!isEditMode) {
+        selectedResultRowIds.clear();
         selectedRowId = target.dataset.rowId;
         updateSelectedResultRow();
       }
@@ -1075,9 +1092,13 @@ function getResultColumnSpan() {
   return Math.max(1, baseColumns + extraColumns + rewardColumns);
 }
 
+function isResultRowSelected(ids) {
+  return ids.some((id) => selectedResultRowIds.size ? selectedResultRowIds.has(String(id)) : String(id) === String(selectedRowId));
+}
+
 function updateSelectedResultRow() {
   resultBody.querySelectorAll("tr[data-row-id]").forEach((row) => {
-    row.classList.toggle("selected-result-row", String(row.dataset.rowId) === String(selectedRowId));
+    row.classList.toggle("selected-result-row", isResultRowSelected(JSON.parse(row.dataset.sourceRowIds ?? JSON.stringify([row.dataset.rowId]))));
   });
 }
 
@@ -1187,6 +1208,7 @@ function createEmptyResultRow(categoryName = "") {
 
 function setEditMode(enabled) {
   isEditMode = Boolean(enabled);
+  selectedResultRowIds.clear();
   lastEditAction = null;
   draggedResultRowId = null;
   editResultsButton.classList.toggle("active", isEditMode);

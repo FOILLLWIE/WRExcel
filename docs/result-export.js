@@ -1,6 +1,19 @@
 const exportResultsButton = actionButton("export-results");
 
 exportResultsButton.addEventListener("click", () => {
+  showAppDialog({
+    type: "csv-export",
+    title: "CSV 다운로드",
+    message: "전체 다운로드는 현재 표시 중인 모든 행을 저장합니다. 선택 행 다운로드는 선택한 행만 저장합니다. Ctrl(또는 ⌘)을 누른 채 값을 클릭하면 여러 행을 선택·해제할 수 있습니다.",
+    actions: [
+      { label: "취소", className: "ghost-button", handler: hideConfirmDialog },
+      { label: "전체 다운로드", className: "ghost-button", handler: () => { hideConfirmDialog(); downloadResultCsv(false); } },
+      { label: "선택 행 다운로드", className: "primary-button", handler: () => { hideConfirmDialog(); downloadResultCsv(true); } },
+    ],
+  });
+});
+
+function downloadResultCsv(selectedOnly) {
   exportResultsButton.disabled = true;
   try {
     commitInlineEdit(true);
@@ -9,12 +22,25 @@ exportResultsButton.addEventListener("click", () => {
       showMessageDialog("다운로드할 상품이 없습니다. 표시 항목과 검색·카테고리 상태를 확인해주세요.");
       return;
     }
+    const visibleRows = [...resultBody.querySelectorAll("tr[data-row-id]")];
+    const exportRows = new Set(visibleRows.filter((tr) => !selectedOnly || isResultRowSelected(JSON.parse(tr.dataset.sourceRowIds ?? JSON.stringify([tr.dataset.rowId])))));
+    if (!exportRows.size) {
+      showMessageDialog("다운로드할 행을 먼저 선택해주세요. Ctrl을 누른 채 클릭하면 여러 행을 선택할 수 있습니다.");
+      return;
+    }
     const csvRows = [headers.map((header) => header.textContent.trim())];
     const rowsById = new Map(currentRows.map((row) => [String(row.row_id), row]));
+    let pendingCategory = null;
     for (const tr of resultBody.querySelectorAll("tr")) {
       if (tr.classList.contains("category-group-row")) {
-        csvRows.push([tr.dataset.category, ...Array(headers.length - 1).fill("")]);
+        if (selectedOnly) pendingCategory = tr.dataset.category;
+        else csvRows.push([tr.dataset.category, ...Array(headers.length - 1).fill("")]);
         continue;
+      }
+      if (!exportRows.has(tr)) continue;
+      if (pendingCategory !== null) {
+        csvRows.push([pendingCategory, ...Array(headers.length - 1).fill("")]);
+        pendingCategory = null;
       }
       const source = rowsById.get(tr.dataset.rowId);
       if (!source) continue;
@@ -50,7 +76,7 @@ exportResultsButton.addEventListener("click", () => {
     const link = document.createElement("a");
     link.href = url;
     const name = (uploadedFile?.name ?? "WRExcel").replace(/\.[^.]+$/, "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
-    link.download = `${name}_계산결과.csv`;
+    link.download = `${name}_${selectedOnly ? "선택행_" : ""}계산결과.csv`;
     document.body.appendChild(link);
     try { link.click(); }
     finally { link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
@@ -59,4 +85,4 @@ exportResultsButton.addEventListener("click", () => {
   } finally {
     exportResultsButton.disabled = false;
   }
-});
+}
