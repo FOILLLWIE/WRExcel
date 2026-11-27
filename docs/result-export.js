@@ -8,12 +8,109 @@ exportResultsButton.addEventListener("click", () => {
     actions: [
       { label: "취소", className: "ghost-button", handler: hideConfirmDialog },
       { label: "전체 다운로드", className: "ghost-button", handler: () => { hideConfirmDialog(); downloadResultCsv(false); } },
+      { label: "금액 기준 다운로드", className: "ghost-button", handler: showCsvAmountFilter },
       { label: "선택 행 다운로드", className: "primary-button", handler: () => { hideConfirmDialog(); downloadResultCsv(true); } },
     ],
   });
 });
 
-function downloadResultCsv(selectedOnly) {
+function getCsvResultValue(source, column, tr = null) {
+  if (column === "product_name") return tr?.querySelector('[data-column="product_name"] [data-copy-value]')?.dataset.copyValue ?? source.product_name;
+  if (column === "total_discount_amount") {
+    const value = Number(source.total_discount_amount) || 0;
+    return showDiscountMinus.checked && value > 0 ? -value : Math.abs(value);
+  }
+  if (column === "discount_rate") return `${Math.round(source.discount_rate)}%`;
+  let value = column.startsWith("extra_") ? source.extra_values?.[column.slice(6)]
+    : column.startsWith("reward_") ? source.reward_values?.[column.slice(7)]
+    : column === "effective_price" ? source.effective_price ?? source.discount_amount
+    : source[column];
+  value = cleanExcelCellValue(value);
+  if (typeof value === "string" && /^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?\s*원?$/.test(value.trim())) {
+    const numeric = Number(value.replace(/[,\s원]/g, ""));
+    if (Number.isFinite(numeric)) value = numeric;
+  }
+  return value ?? "";
+}
+
+function showCsvAmountFilter() {
+  commitInlineEdit(true);
+  const rowsById = new Map(currentRows.map((row) => [String(row.row_id), row]));
+  const rows = [...resultBody.querySelectorAll("tr[data-row-id]")].map((tr) => rowsById.get(tr.dataset.rowId)).filter(Boolean);
+  const headers = getVisibleResultHeaders().filter((header) => {
+    const column = header.dataset.column;
+    return column !== "product_name" && column !== "discount_rate"
+      && rows.some((row) => Number.isFinite(getCsvResultValue(row, column)));
+  });
+  if (!headers.length) {
+    showMessageDialog("금액을 선택할 수 있는 표시 항목이나 상품이 없습니다.");
+    return;
+  }
+  const amounts = new Set();
+  let column = headers[0].dataset.column;
+  showAppDialog({
+    type: "csv-amount-export",
+    title: "금액 기준 다운로드",
+    message: "현재 표시 중인 상품에서 기준 열과 금액을 선택하세요. 체크한 금액 중 하나에 해당하는 행을 다운로드합니다.",
+    actions: [
+      { label: "취소", className: "ghost-button", handler: hideConfirmDialog },
+      { label: "다운로드", className: "primary-button", handler: () => {
+        if (!amounts.size) return;
+        hideConfirmDialog();
+        downloadResultCsv(false, { column, amounts });
+      } },
+    ],
+  });
+  const download = dialogActions.lastElementChild;
+  download.disabled = true;
+  const panel = document.createElement("span");
+  panel.className = "csv-amount-filter";
+  const label = document.createElement("label");
+  label.textContent = "기준 열 ";
+  const select = document.createElement("select");
+  select.dataset.role = "csv-amount-column";
+  headers.forEach((header) => {
+    const option = document.createElement("option");
+    option.value = header.dataset.column;
+    option.textContent = header.textContent.trim();
+    select.appendChild(option);
+  });
+  label.appendChild(select);
+  const list = document.createElement("span");
+  list.className = "csv-amount-list";
+  list.setAttribute("role", "group");
+  list.setAttribute("aria-label", "다운로드할 금액");
+  const renderAmounts = () => {
+    column = select.value;
+    amounts.clear();
+    download.disabled = true;
+    list.replaceChildren();
+    const counts = new Map();
+    rows.forEach((row) => {
+      const value = getCsvResultValue(row, column);
+      if (typeof value === "number" && Number.isFinite(value)) counts.set(value, (counts.get(value) ?? 0) + 1);
+    });
+    [...counts].sort(([a], [b]) => b - a).forEach(([value, count]) => {
+      const option = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = String(value);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) amounts.add(value);
+        else amounts.delete(value);
+        download.disabled = amounts.size === 0;
+      });
+      option.append(checkbox, `${currencyFormatter.format(value)}원 · ${count}개`);
+      list.appendChild(option);
+    });
+  };
+  select.addEventListener("change", renderAmounts);
+  panel.append(label, list);
+  dialogMessage.appendChild(panel);
+  renderAmounts();
+}
+
+function downloadResultCsv(selectedOnly, amountFilter = null) {
   exportResultsButton.disabled = true;
   try {
     commitInlineEdit(true);
@@ -23,17 +120,22 @@ function downloadResultCsv(selectedOnly) {
       return;
     }
     const visibleRows = [...resultBody.querySelectorAll("tr[data-row-id]")];
-    const exportRows = new Set(visibleRows.filter((tr) => !selectedOnly || isResultRowSelected(JSON.parse(tr.dataset.sourceRowIds ?? JSON.stringify([tr.dataset.rowId])))));
+    const rowsById = new Map(currentRows.map((row) => [String(row.row_id), row]));
+    const exportRows = new Set(visibleRows.filter((tr) => {
+      if (selectedOnly && !isResultRowSelected(JSON.parse(tr.dataset.sourceRowIds ?? JSON.stringify([tr.dataset.rowId])))) return false;
+      if (!amountFilter) return true;
+      const source = rowsById.get(tr.dataset.rowId);
+      return source && amountFilter.amounts.has(getCsvResultValue(source, amountFilter.column));
+    }));
     if (!exportRows.size) {
-      showMessageDialog("다운로드할 행을 먼저 선택해주세요. Ctrl을 누른 채 클릭하면 여러 행을 선택할 수 있습니다.");
+      showMessageDialog(amountFilter ? "선택한 금액에 해당하는 상품이 없습니다." : "다운로드할 행을 먼저 선택해주세요. Ctrl을 누른 채 클릭하면 여러 행을 선택할 수 있습니다.");
       return;
     }
     const csvRows = [headers.map((header) => header.textContent.trim())];
-    const rowsById = new Map(currentRows.map((row) => [String(row.row_id), row]));
     let pendingCategory = null;
     for (const tr of resultBody.querySelectorAll("tr")) {
       if (tr.classList.contains("category-group-row")) {
-        if (selectedOnly) pendingCategory = tr.dataset.category;
+        if (selectedOnly || amountFilter) pendingCategory = tr.dataset.category;
         else csvRows.push([tr.dataset.category, ...Array(headers.length - 1).fill("")]);
         continue;
       }
@@ -46,22 +148,7 @@ function downloadResultCsv(selectedOnly) {
       if (!source) continue;
       const values = headers.map((header) => {
         const column = header.dataset.column;
-        if (column === "product_name") return tr.querySelector('[data-column="product_name"] [data-copy-value]')?.dataset.copyValue ?? source.product_name;
-        if (column === "total_discount_amount") {
-          const value = Number(source.total_discount_amount) || 0;
-          return showDiscountMinus.checked && value > 0 ? -value : Math.abs(value);
-        }
-        if (column === "discount_rate") return `${Math.round(source.discount_rate)}%`;
-        let value = column.startsWith("extra_") ? source.extra_values?.[column.slice(6)]
-          : column.startsWith("reward_") ? source.reward_values?.[column.slice(7)]
-          : column === "effective_price" ? source.effective_price ?? source.discount_amount
-          : source[column];
-        value = cleanExcelCellValue(value);
-        if (typeof value === "string" && /^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?\s*원?$/.test(value.trim())) {
-          const numeric = Number(value.replace(/[,\s원]/g, ""));
-          if (Number.isFinite(numeric)) value = numeric;
-        }
-        return value ?? "";
+        return getCsvResultValue(source, column, tr);
       });
       csvRows.push(values);
     }
@@ -76,7 +163,7 @@ function downloadResultCsv(selectedOnly) {
     const link = document.createElement("a");
     link.href = url;
     const name = (uploadedFile?.name ?? "WRExcel").replace(/\.[^.]+$/, "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
-    link.download = `${name}_${selectedOnly ? "선택행_" : ""}계산결과.csv`;
+    link.download = `${name}_${amountFilter ? "금액기준_" : selectedOnly ? "선택행_" : ""}계산결과.csv`;
     document.body.appendChild(link);
     try { link.click(); }
     finally { link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
