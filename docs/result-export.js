@@ -1,6 +1,6 @@
 const exportResultsButton = actionButton("export-results");
 
-exportResultsButton.addEventListener("click", async () => {
+exportResultsButton.addEventListener("click", () => {
   exportResultsButton.disabled = true;
   try {
     commitInlineEdit(true);
@@ -9,17 +9,11 @@ exportResultsButton.addEventListener("click", async () => {
       showMessageDialog("다운로드할 상품이 없습니다. 표시 항목과 검색·카테고리 상태를 확인해주세요.");
       return;
     }
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("계산 결과");
-    sheet.views = [{ state: "frozen", ySplit: 1 }];
-    sheet.addRow(headers.map((header) => header.textContent.trim()));
+    const csvRows = [headers.map((header) => header.textContent.trim())];
     const rowsById = new Map(currentRows.map((row) => [String(row.row_id), row]));
     for (const tr of resultBody.querySelectorAll("tr")) {
       if (tr.classList.contains("category-group-row")) {
-        const categoryRow = sheet.addRow([tr.dataset.category]);
-        if (headers.length > 1) sheet.mergeCells(categoryRow.number, 1, categoryRow.number, headers.length);
-        categoryRow.getCell(1).font = { bold: true };
-        categoryRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4EFE8" } };
+        csvRows.push([tr.dataset.category, ...Array(headers.length - 1).fill("")]);
         continue;
       }
       const source = rowsById.get(tr.dataset.rowId);
@@ -31,7 +25,7 @@ exportResultsButton.addEventListener("click", async () => {
           const value = Number(source.total_discount_amount) || 0;
           return showDiscountMinus.checked && value > 0 ? -value : Math.abs(value);
         }
-        if (column === "discount_rate") return Math.round(source.discount_rate) / 100;
+        if (column === "discount_rate") return `${Math.round(source.discount_rate)}%`;
         let value = column.startsWith("extra_") ? source.extra_values?.[column.slice(6)]
           : column.startsWith("reward_") ? source.reward_values?.[column.slice(7)]
           : column === "effective_price" ? source.effective_price ?? source.discount_amount
@@ -43,29 +37,25 @@ exportResultsButton.addEventListener("click", async () => {
         }
         return value ?? "";
       });
-      const row = sheet.addRow(values);
-      headers.forEach((header, index) => {
-        const cell = row.getCell(index + 1);
-        if (typeof cell.value !== "number") return;
-        const amountFormat = Number.isInteger(cell.value) ? "#,##0" : "#,##0.###";
-        cell.numFmt = header.dataset.column === "discount_rate" ? "0%" : `${amountFormat}${showWonSuffix.checked ? '"원"' : ""}`;
-      });
+      csvRows.push(values);
     }
-    headers.forEach((header, index) => {
-      sheet.getColumn(index + 1).width = header.dataset.column === "product_name" ? 55 : Math.max(16, Math.min(30, header.textContent.trim().length * 2 + 4));
-      sheet.getRow(1).getCell(index + 1).font = { bold: true };
-    });
-    const buffer = await workbook.xlsx.writeBuffer();
-    const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const csv = "\uFEFF" + csvRows.map((row) => row.map((value) => {
+      if (typeof value === "number") return String(value);
+      let text = String(value ?? "");
+      // CSV text must not become a spreadsheet formula when the file is opened.
+      if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
+      return `"${text.replace(/"/g, '\"\"')}"`;
+    }).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
     const name = (uploadedFile?.name ?? "WRExcel").replace(/\.[^.]+$/, "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
-    link.download = `${name}_계산결과.xlsx`;
+    link.download = `${name}_계산결과.csv`;
     document.body.appendChild(link);
     try { link.click(); }
     finally { link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
   } catch (error) {
-    showMessageDialog(`엑셀 파일을 만들지 못했습니다. ${error.message}`);
+    showMessageDialog(`CSV 파일을 만들지 못했습니다. ${error.message}`);
   } finally {
     exportResultsButton.disabled = false;
   }
