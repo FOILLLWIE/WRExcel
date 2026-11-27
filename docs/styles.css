@@ -2355,10 +2355,10 @@ th {
   flex-wrap: nowrap;
   justify-content: flex-start;
   align-items: center;
-  gap: 0;
+  gap: 6px;
 }
 [data-dialog-type="csv-export"] .dialog-actions > button:not(.csv-export-close) {
-  padding: 10px 12px;
+  padding: 10px 10px;
   white-space: nowrap;
   min-width: 0;
 }
@@ -2378,7 +2378,7 @@ th {
 [data-dialog-type="csv-export"] .csv-export-close:hover { background: rgba(154, 91, 42, 0.12); }
 @media (max-width: 420px) {
   [data-dialog-type="csv-export"] .dialog-actions > button:not(.csv-export-close) {
-    padding: 10px 8px;
+    padding: 10px 6px;
     font-size: 12px;
   }
 }
