@@ -47,7 +47,8 @@ exportResultsButton.addEventListener("click", async () => {
       headers.forEach((header, index) => {
         const cell = row.getCell(index + 1);
         if (typeof cell.value !== "number") return;
-        cell.numFmt = header.dataset.column === "discount_rate" ? "0%" : showWonSuffix.checked ? '#,##0.###"원"' : "#,##0.###";
+        const amountFormat = Number.isInteger(cell.value) ? "#,##0" : "#,##0.###";
+        cell.numFmt = header.dataset.column === "discount_rate" ? "0%" : `${amountFormat}${showWonSuffix.checked ? '"원"' : ""}`;
       });
     }
     headers.forEach((header, index) => {
