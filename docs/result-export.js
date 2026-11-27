@@ -6,10 +6,10 @@ exportResultsButton.addEventListener("click", () => {
     title: "CSV 다운로드",
     message: "전체 다운로드는 현재 표시 중인 모든 행을 저장합니다. 선택 행 다운로드는 선택한 행만 저장합니다. Ctrl(또는 ⌘)을 누른 채 값을 클릭하면 여러 행을 선택·해제할 수 있습니다.",
     actions: [
-      { label: "취소", className: "ghost-button", handler: hideConfirmDialog },
-      { label: "전체 다운로드", className: "ghost-button", handler: () => { hideConfirmDialog(); downloadResultCsv(false); } },
-      { label: "금액 기준 다운로드", className: "ghost-button", handler: showCsvAmountFilter },
-      { label: "선택 행 다운로드", className: "primary-button", handler: () => { hideConfirmDialog(); downloadResultCsv(true); } },
+      { label: "전체 다운로드", className: "primary-button csv-export-all", handler: () => { hideConfirmDialog(); downloadResultCsv(false); } },
+      { label: "금액 기준 다운로드", className: "ghost-button csv-export-amount", handler: showCsvAmountFilter },
+      { label: "선택 행 다운로드", className: "ghost-button csv-export-selected", handler: () => { hideConfirmDialog(); downloadResultCsv(true); } },
+      { label: "취소", className: "ghost-button csv-export-cancel", handler: hideConfirmDialog },
     ],
   });
 });

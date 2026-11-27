@@ -2348,7 +2348,17 @@ th {
   min-width: 0;
 }
 
-[data-dialog-type="csv-export"] .dialog-actions { flex-wrap: wrap; }
+[data-dialog-type="csv-export"] .dialog-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas: "all ." "amount selected" ". cancel";
+  justify-items: start;
+  align-items: center;
+}
+[data-dialog-type="csv-export"] .csv-export-all { grid-area: all; }
+[data-dialog-type="csv-export"] .csv-export-amount { grid-area: amount; }
+[data-dialog-type="csv-export"] .csv-export-selected { grid-area: selected; }
+[data-dialog-type="csv-export"] .csv-export-cancel { grid-area: cancel; justify-self: end; margin-top: 8px; }
 [data-dialog-type="csv-amount-export"] .dialog-card {
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
