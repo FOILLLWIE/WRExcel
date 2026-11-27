@@ -90,6 +90,9 @@ let uploadedFile = null;
 let excelWorkbook = null;
 let workbookPreview = null;
 let activePick = "product";
+let productPickRow = null;
+let pricePickRow = null;
+let productRowMapping = { offset: 0 };
 let pendingPayload = null;
 let currentRows = [];
 let isEditMode = false;
@@ -270,6 +273,7 @@ calculateButton.addEventListener("click", async () => {
     const payload = await postFile("/api/calculate", {
       sheet_name: sheetSelect.value,
       product_col: productColumn.dataset.index,
+      product_row_mapping: JSON.stringify(productRowMapping),
       product_color: columnFilters.product.selected,
       product_color_mode: columnFilters.product.mode,
       original_col: originalColumn.dataset.index,
@@ -484,6 +488,10 @@ function populateSheetSelect(sheets) {
 function renderSheet(sheetName) {
   const sheet = workbookPreview.sheets.find((item) => item.name === sheetName);
   previewTable.innerHTML = "";
+  productPickRow = null;
+  pricePickRow = null;
+  productRowMapping = { offset: 0 };
+  updateProductRowMappingHint();
   [productColumn, originalColumn, finalPriceColumn, categoryColumn].forEach((input) => {
     input.value = "";
     delete input.dataset.index;
@@ -553,6 +561,39 @@ function updatePreviewColumnHighlights() {
   });
 }
 
+function updateProductRowMappingHint() {
+  const hint = qs('[data-role="product-row-mapping"]');
+  hint.hidden = productRowMapping.offset === 0;
+  qs("span", hint).textContent = `제품명은 금액 행보다 ${Math.abs(productRowMapping.offset)}행 ${productRowMapping.offset < 0 ? "위" : "아래"}에서 읽습니다.${productRowMapping.marker ? " 반복되는 표 머리글을 기준으로 상품을 구분합니다." : ""}`;
+}
+
+function inferProductRowMapping() {
+  const offset = productPickRow !== null && pricePickRow !== null ? productPickRow - pricePickRow : 0;
+  productRowMapping = { offset };
+  if (offset && excelWorkbook) {
+    const worksheet = getWorksheetByName(sheetSelect.value);
+    const column = parseColumnInput(originalColumn.value) ?? parseColumnInput(finalPriceColumn.value);
+    if (column !== null && column !== parseColumnInput(productColumn.value)) {
+      const markerCell = getDisplayCell(worksheet, productPickRow, column);
+      const value = cleanExcelCellValue(markerCell.value);
+      // Repeated text headers distinguish the real product rows from reference prices in a block.
+      if (typeof value === "string" && value.trim() && !/^[\d\s,.+\-원]+$/.test(value.trim())) {
+        productRowMapping.marker = { column, text: value.trim(), rowOffset: productPickRow - markerCell.row };
+      }
+    }
+  }
+  updateProductRowMappingHint();
+}
+
+qs('[data-action="reset-product-row-mapping"]').addEventListener("click", () => {
+  productPickRow = null;
+  pricePickRow = null;
+  productRowMapping = { offset: 0 };
+  updateProductRowMappingHint();
+  loadAllColumnColors();
+  queueSaveCurrentSettings();
+});
+
 function selectCell(cell) {
   const colIndex = Number(cell.dataset.col);
   const rowNumber = Number(cell.dataset.row);
@@ -568,12 +609,16 @@ function selectCell(cell) {
           : categoryColumn;
 
   if (!target) return;
+  if (activePick === "product") productPickRow = rowNumber;
+  if (activePick === "original" || activePick === "final") pricePickRow = rowNumber;
   target.value = `${columnLabel(colIndex)}열`;
   target.dataset.index = String(colIndex);
   target.dispatchEvent(new Event("input", { bubbles: true }));
   if (activePick === "extra") persistDynamicColumnInput(target, colIndex);
-  if (activePick === "product") {
-    startRow.value = rowNumber;
+  inferProductRowMapping();
+  if (activePick === "product" || activePick === "original" || activePick === "final") {
+    startRow.value = pricePickRow ?? productPickRow ?? rowNumber;
+    loadAllColumnColors();
   }
   if (activePick !== "extra" && autoLoadColorFilters.checked) loadColumnColors(activePick);
 
@@ -588,6 +633,12 @@ function selectCell(cell) {
 [productColumn, originalColumn, finalPriceColumn, categoryColumn].forEach((input) => {
   input.addEventListener("input", () => {
     const parsed = parseColumnInput(input.value);
+    if (input === productColumn && String(parsed) !== input.dataset.index) {
+      productPickRow = null;
+      pricePickRow = null;
+      productRowMapping = { offset: 0 };
+      updateProductRowMappingHint();
+    }
     if (parsed === null) delete input.dataset.index;
     else input.dataset.index = String(parsed);
     const colorKey = columnKeyForInput(input);
@@ -660,8 +711,8 @@ async function loadColumnColors(key) {
     const payload = await postFile("/api/column-colors", {
       sheet_name: sheetSelect.value,
       column_index: filter.input.dataset.index,
-      start_row: startRow.value,
-      end_row: endRow.value,
+      start_row: Number(startRow.value) + (key === "product" ? productRowMapping.offset : 0),
+      end_row: Number(endRow.value) + (key === "product" ? productRowMapping.offset : 0),
     });
     const usableColors = payload.colors.filter((color) => color.value !== "FFFFFF");
     const availableColors = usableColors.map((color) => color.value);
@@ -1628,6 +1679,9 @@ async function calculateExcelInBrowser(fields) {
   await getExcelWorkbook();
   const worksheet = getWorksheetByName(fields.sheet_name);
   const productCol = Number(fields.product_col);
+  const rowMapping = JSON.parse(fields.product_row_mapping || '{"offset":0}');
+  const productOffset = Number(rowMapping.offset ?? 0);
+  if (!Number.isInteger(productOffset)) throw new Error("제품명 행 간격을 다시 선택해주세요.");
   const originalCol = Number(fields.original_col);
   const finalCol = Number(fields.final_price_col);
   const categoryCol = fields.category_col === "" ? null : Number(fields.category_col);
@@ -1657,11 +1711,19 @@ async function calculateExcelInBrowser(fields) {
     const row = worksheet.getRow(rowNumber);
     const categoryValue = categoryCol !== null ? String(cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, categoryCol).value)).trim() : "";
     if (categoryValue) activeCategoryName = categoryValue;
-    if (!passesColorFilter(worksheet, rowNumber, productCol, fields.product_color, fields.product_color_mode)) continue;
+    const productRow = rowNumber + productOffset;
+    if (productRow < 1 || productRow > worksheet.rowCount || isHiddenRow(worksheet, productRow)) continue;
+    if (productOffset && rowMapping.marker) {
+      const marker = rowMapping.marker;
+      const markerCell = getDisplayCell(worksheet, productRow, marker.column);
+      if (productRow - markerCell.row !== (marker.rowOffset ?? 0)
+        || String(cleanExcelCellValue(markerCell.value)).trim() !== marker.text) continue;
+    }
+    if (!passesColorFilter(worksheet, productRow, productCol, fields.product_color, fields.product_color_mode)) continue;
     if (!passesColorFilter(worksheet, rowNumber, originalCol, fields.original_color, fields.original_color_mode)) continue;
     if (!passesColorFilter(worksheet, rowNumber, finalCol, fields.final_price_color, fields.final_price_color_mode)) continue;
 
-    const productValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, productCol).value);
+    const productValue = cleanExcelCellValue(getDisplayCell(worksheet, productRow, productCol).value);
     const originalCellValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, originalCol).value);
     const finalCellValue = cleanExcelCellValue(getDisplayCell(worksheet, rowNumber, finalCol).value);
     if (String(productValue).trim() === "" || String(originalCellValue).trim() === "" || String(finalCellValue).trim() === "") continue;
@@ -2332,11 +2394,13 @@ function getCurrentMappingSnapshot() {
     original: getColumnLetterFromInput(originalColumn),
     finalPrice: getColumnLetterFromInput(finalPriceColumn),
     category: getColumnLetterFromInput(categoryColumn),
+    ...(productRowMapping.offset ? { productRowMapping } : {}),
   };
 }
 
 function isSameMapping(mappingA = {}, mappingB = {}) {
-  return ["product", "original", "finalPrice", "category"].every((key) => (mappingA[key] ?? "") === (mappingB[key] ?? ""));
+  return ["product", "original", "finalPrice", "category"].every((key) => (mappingA[key] ?? "") === (mappingB[key] ?? ""))
+    && stableSettingsString(mappingA.productRowMapping ?? { offset: 0 }) === stableSettingsString(mappingB.productRowMapping ?? { offset: 0 });
 }
 
 function hasActiveColorFilter() {
@@ -2549,6 +2613,7 @@ function normalizeStoredConfig(config) {
     return {
       sheet_name: config.sheetName ?? config.sheet_name ?? sheetSelect.value,
       product_col: config.mapping?.product ?? "",
+      product_row_mapping: config.mapping?.productRowMapping ?? { offset: 0 },
       product_color: config.options?.productColor ?? "",
       product_color_mode: config.options?.productColorMode ?? "include",
       original_col: config.mapping?.original ?? "",
@@ -2586,6 +2651,11 @@ function restoreSettings(config) {
   categoryColumn.value = normalizedConfig.category_col ?? "";
   startRow.value = normalizedConfig.start_row ?? startRow.value;
   endRow.value = normalizedConfig.end_row ?? endRow.value;
+  const savedRowMapping = normalizedConfig.product_row_mapping;
+  productRowMapping = savedRowMapping && Number.isInteger(savedRowMapping.offset) ? savedRowMapping : { offset: 0 };
+  pricePickRow = productRowMapping.offset ? Number(startRow.value) : null;
+  productPickRow = pricePickRow === null ? null : pricePickRow + productRowMapping.offset;
+  updateProductRowMappingHint();
   if (normalizedConfig.auto_load_color_filters !== undefined) autoLoadColorFilters.checked = Boolean(normalizedConfig.auto_load_color_filters);
   if (normalizedConfig.show_won_suffix !== undefined) showWonSuffix.checked = Boolean(normalizedConfig.show_won_suffix);
   if (normalizedConfig.show_discount_minus !== undefined) showDiscountMinus.checked = Boolean(normalizedConfig.show_discount_minus);
