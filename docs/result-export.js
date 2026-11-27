@@ -9,9 +9,12 @@ exportResultsButton.addEventListener("click", () => {
       { label: "전체 다운로드", className: "primary-button csv-export-all", handler: () => { hideConfirmDialog(); downloadResultCsv(false); } },
       { label: "금액 기준 다운로드", className: "ghost-button csv-export-amount", handler: showCsvAmountFilter },
       { label: "선택 행 다운로드", className: "ghost-button csv-export-selected", handler: () => { hideConfirmDialog(); downloadResultCsv(true); } },
-      { label: "취소", className: "ghost-button csv-export-cancel", handler: hideConfirmDialog },
+      { label: "×", className: "ghost-button csv-export-close", handler: hideConfirmDialog },
     ],
   });
+  const close = dialogActions.querySelector(".csv-export-close");
+  close.setAttribute("aria-label", "닫기");
+  close.title = "닫기";
 });
 
 function getCsvResultValue(source, column, tr = null) {
